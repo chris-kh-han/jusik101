@@ -1,0 +1,173 @@
+[
+  {
+    "session_id": "90e4527d-13f0-4aad-afae-1f66d841aeed",
+    "transcript_path": "/Users/ace/.claude/projects/-Users-ace-2026-jusik101/90e4527d-13f0-4aad-afae-1f66d841aeed.jsonl",
+    "cwd": "/Users/ace/2026/jusik101",
+    "permission_mode": "plan",
+    "hook_event_name": "UserPromptSubmit",
+    "prompt": "supabase안쓸거임 최대한 무료로 돌리고 security 챙길수있는 stack으로 할려고함 \n\n복사해서읽어",
+    "logged_at": "2026-03-28 02:40:51"
+  },
+  {
+    "session_id": "90e4527d-13f0-4aad-afae-1f66d841aeed",
+    "transcript_path": "/Users/ace/.claude/projects/-Users-ace-2026-jusik101/90e4527d-13f0-4aad-afae-1f66d841aeed.jsonl",
+    "cwd": "/Users/ace/2026/jusik101",
+    "permission_mode": "plan",
+    "hook_event_name": "UserPromptSubmit",
+    "prompt": "context7으로 확인안해? nextjs가 최신ㅂ=버전 뭐야",
+    "logged_at": "2026-03-28 02:40:09"
+  },
+  {
+    "session_id": "90e4527d-13f0-4aad-afae-1f66d841aeed",
+    "transcript_path": "/Users/ace/.claude/projects/-Users-ace-2026-jusik101/90e4527d-13f0-4aad-afae-1f66d841aeed.jsonl",
+    "cwd": "/Users/ace/2026/jusik101",
+    "permission_mode": "plan",
+    "hook_event_name": "UserPromptSubmit",
+    "prompt": "@/Users/ace/Downloads/plan.md 읽어봐",
+    "logged_at": "2026-03-28 02:39:42"
+  },
+  {
+    "session_id": "90e4527d-13f0-4aad-afae-1f66d841aeed",
+    "transcript_path": "/Users/ace/.claude/projects/-Users-ace-2026-jusik101/90e4527d-13f0-4aad-afae-1f66d841aeed.jsonl",
+    "cwd": "/Users/ace/2026/jusik101",
+    "permission_mode": "plan",
+    "hook_event_name": "UserPromptSubmit",
+    "prompt": "다 되있짢아",
+    "logged_at": "2026-03-28 02:39:15"
+  },
+  {
+    "session_id": "90e4527d-13f0-4aad-afae-1f66d841aeed",
+    "transcript_path": "/Users/ace/.claude/projects/-Users-ace-2026-jusik101/90e4527d-13f0-4aad-afae-1f66d841aeed.jsonl",
+    "cwd": "/Users/ace/2026/jusik101",
+    "permission_mode": "plan",
+    "hook_event_name": "UserPromptSubmit",
+    "prompt": "@/Users/ace/Downloads/plan.md 권한 설정어떻게함",
+    "logged_at": "2026-03-28 02:38:40"
+  },
+  {
+    "session_id": "90e4527d-13f0-4aad-afae-1f66d841aeed",
+    "transcript_path": "/Users/ace/.claude/projects/-Users-ace-2026-jusik101/90e4527d-13f0-4aad-afae-1f66d841aeed.jsonl",
+    "cwd": "/Users/ace/2026/jusik101",
+    "permission_mode": "plan",
+    "hook_event_name": "UserPromptSubmit",
+    "prompt": "내가 파일올렸잖아/",
+    "logged_at": "2026-03-28 02:38:19"
+  },
+  {
+    "session_id": "90e4527d-13f0-4aad-afae-1f66d841aeed",
+    "transcript_path": "/Users/ace/.claude/projects/-Users-ace-2026-jusik101/90e4527d-13f0-4aad-afae-1f66d841aeed.jsonl",
+    "cwd": "/Users/ace/2026/jusik101",
+    "permission_mode": "plan",
+    "hook_event_name": "UserPromptSubmit",
+    "prompt": "@/Users/ace/Downloads/plan.md 위 플랜대로할껀데 nextjs 최신버전 으로 하고 vercel로 배포를 할려고생각중 현재는 그리고 pnpm package manager로 할려고해",
+    "logged_at": "2026-03-28 02:37:57"
+  },
+  {
+    "session_id": "90e4527d-13f0-4aad-afae-1f66d841aeed",
+    "transcript_path": "/Users/ace/.claude/projects/-Users-ace-2026-jusik101/90e4527d-13f0-4aad-afae-1f66d841aeed.jsonl",
+    "cwd": "/Users/ace/2026/jusik101",
+    "permission_mode": "plan",
+    "hook_event_name": "UserPromptSubmit",
+    "prompt": "그래서 commitpush하라는건가",
+    "logged_at": "2026-03-28 02:37:15"
+  },
+  {
+    "session_id": "90e4527d-13f0-4aad-afae-1f66d841aeed",
+    "transcript_path": "/Users/ace/.claude/projects/-Users-ace-2026-jusik101/90e4527d-13f0-4aad-afae-1f66d841aeed.jsonl",
+    "cwd": "/Users/ace/2026/jusik101",
+    "permission_mode": "plan",
+    "hook_event_name": "UserPromptSubmit",
+    "prompt": "여기 위에 web 은 뭐야 현재 local이긴한데",
+    "logged_at": "2026-03-28 02:32:11"
+  },
+  {
+    "session_id": "90e4527d-13f0-4aad-afae-1f66d841aeed",
+    "transcript_path": "/Users/ace/.claude/projects/-Users-ace-2026-jusik101/90e4527d-13f0-4aad-afae-1f66d841aeed.jsonl",
+    "cwd": "/Users/ace/2026/jusik101",
+    "permission_mode": "plan",
+    "hook_event_name": "UserPromptSubmit",
+    "prompt": "claude --remote이거 맞는건가 그냥 /remote-control아님?",
+    "logged_at": "2026-03-28 02:31:12"
+  },
+  {
+    "session_id": "90e4527d-13f0-4aad-afae-1f66d841aeed",
+    "transcript_path": "/Users/ace/.claude/projects/-Users-ace-2026-jusik101/90e4527d-13f0-4aad-afae-1f66d841aeed.jsonl",
+    "cwd": "/Users/ace/2026/jusik101",
+    "permission_mode": "plan",
+    "hook_event_name": "UserPromptSubmit",
+    "prompt": "remote conttrol자세하게설명해봐",
+    "logged_at": "2026-03-28 02:30:07"
+  },
+  {
+    "session_id": "90e4527d-13f0-4aad-afae-1f66d841aeed",
+    "transcript_path": "/Users/ace/.claude/projects/-Users-ace-2026-jusik101/90e4527d-13f0-4aad-afae-1f66d841aeed.jsonl",
+    "cwd": "/Users/ace/2026/jusik101",
+    "permission_mode": "plan",
+    "hook_event_name": "UserPromptSubmit",
+    "prompt": "그럼 repo랑 연결되는건가?",
+    "logged_at": "2026-03-28 02:29:51"
+  },
+  {
+    "session_id": "90e4527d-13f0-4aad-afae-1f66d841aeed",
+    "transcript_path": "/Users/ace/.claude/projects/-Users-ace-2026-jusik101/90e4527d-13f0-4aad-afae-1f66d841aeed.jsonl",
+    "cwd": "/Users/ace/2026/jusik101",
+    "permission_mode": "plan",
+    "hook_event_name": "UserPromptSubmit",
+    "prompt": "cloud하니까 github 연결하라는데",
+    "logged_at": "2026-03-28 02:28:56"
+  },
+  {
+    "session_id": "90e4527d-13f0-4aad-afae-1f66d841aeed",
+    "transcript_path": "/Users/ace/.claude/projects/-Users-ace-2026-jusik101/90e4527d-13f0-4aad-afae-1f66d841aeed.jsonl",
+    "cwd": "/Users/ace/2026/jusik101",
+    "permission_mode": "plan",
+    "hook_event_name": "UserPromptSubmit",
+    "prompt": "웹에서 이어진다는게; 무슨말임?",
+    "logged_at": "2026-03-28 02:28:05"
+  },
+  {
+    "session_id": "90e4527d-13f0-4aad-afae-1f66d841aeed",
+    "transcript_path": "/Users/ace/.claude/projects/-Users-ace-2026-jusik101/90e4527d-13f0-4aad-afae-1f66d841aeed.jsonl",
+    "cwd": "/Users/ace/2026/jusik101",
+    "permission_mode": "plan",
+    "hook_event_name": "UserPromptSubmit",
+    "prompt": "이게 뭐하는건지 설명좀 claude code에있던거임 그리고 local cloud add remote-control각각 뭔차이진지돔",
+    "logged_at": "2026-03-28 02:27:36"
+  },
+  {
+    "session_id": "90e4527d-13f0-4aad-afae-1f66d841aeed",
+    "transcript_path": "/Users/ace/.claude/projects/-Users-ace-2026-jusik101/90e4527d-13f0-4aad-afae-1f66d841aeed.jsonl",
+    "cwd": "/Users/ace/2026/jusik101",
+    "permission_mode": "plan",
+    "hook_event_name": "UserPromptSubmit",
+    "prompt": "뭐하냐고",
+    "logged_at": "2026-03-28 02:27:13"
+  },
+  {
+    "session_id": "90e4527d-13f0-4aad-afae-1f66d841aeed",
+    "transcript_path": "/Users/ace/.claude/projects/-Users-ace-2026-jusik101/90e4527d-13f0-4aad-afae-1f66d841aeed.jsonl",
+    "cwd": "/Users/ace/2026/jusik101",
+    "permission_mode": "plan",
+    "hook_event_name": "UserPromptSubmit",
+    "prompt": "Commit and push all changes so I can continue this session on the web.",
+    "logged_at": "2026-03-28 02:20:38"
+  },
+  {
+    "session_id": "90e4527d-13f0-4aad-afae-1f66d841aeed",
+    "transcript_path": "/Users/ace/.claude/projects/-Users-ace-2026-jusik101/90e4527d-13f0-4aad-afae-1f66d841aeed.jsonl",
+    "cwd": "/Users/ace/2026/jusik101",
+    "permission_mode": "plan",
+    "hook_event_name": "UserPromptSubmit",
+    "prompt": "~/.claude에 깔려있어서 가능한건가",
+    "logged_at": "2026-03-28 02:20:25"
+  },
+  {
+    "session_id": "90e4527d-13f0-4aad-afae-1f66d841aeed",
+    "transcript_path": "/Users/ace/.claude/projects/-Users-ace-2026-jusik101/90e4527d-13f0-4aad-afae-1f66d841aeed.jsonl",
+    "cwd": "/Users/ace/2026/jusik101",
+    "permission_mode": "plan",
+    "hook_event_name": "UserPromptSubmit",
+    "prompt": "context7 mcp 이용가능한가",
+    "logged_at": "2026-03-28 02:19:46"
+  }
+]

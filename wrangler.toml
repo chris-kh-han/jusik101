@@ -1,0 +1,17 @@
+# Cloudflare Pages 설정
+# 참고: https://developers.cloudflare.com/pages/functions/wrangler-configuration/
+
+name = "jusik101"
+compatibility_date = "2026-01-01"
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = ".vercel/output/static"
+
+# D1 데이터베이스 바인딩
+# 이 바인딩으로 Pages Functions에서 env.DB 객체로 접근 가능
+[[d1_databases]]
+binding = "DB"
+database_name = "jusik101-companies"
+database_id = "cb1b62b7-47d0-4b48-bc6b-d4ded1288d9b"
+
+# 환경변수는 wrangler secret put으로 설정
+# (DART_API_KEY, CRON_SECRET 등)

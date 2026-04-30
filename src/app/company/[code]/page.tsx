@@ -3,6 +3,8 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { findCompanyByCode } from '@/lib/company-search';
+import { findCompanyByCodeD1 } from '@/lib/company-search-d1';
+import { D1Error } from '@/lib/d1-client';
 import { HealthScoreCard } from '@/components/dashboard/HealthScoreCard';
 import { KeyMetricsBar } from '@/components/dashboard/KeyMetricsBar';
 import { DashboardCharts } from '@/components/dashboard/DashboardCharts';
@@ -14,6 +16,17 @@ export const runtime = 'edge';
 import { calculateRatios, getHealthScore } from '@/lib/financial-utils';
 import { DartApiError } from '@/lib/dart-api';
 
+/** D1 우선, 실패 시 정적 JSON으로 fallback */
+async function lookupCompany(corpCode: string) {
+  try {
+    const fromD1 = await findCompanyByCodeD1(corpCode);
+    if (fromD1) return fromD1;
+  } catch (error) {
+    if (!(error instanceof D1Error)) throw error;
+  }
+  return findCompanyByCode(corpCode) ?? null;
+}
+
 interface PageProps {
   params: Promise<{ code: string }>;
 }
@@ -22,7 +35,7 @@ export async function generateMetadata({
   params,
 }: PageProps): Promise<Metadata> {
   const { code } = await params;
-  const company = findCompanyByCode(code);
+  const company = await lookupCompany(code);
 
   if (!company) {
     return { title: '기업을 찾을 수 없습니다' };
@@ -38,7 +51,7 @@ export const revalidate = 86400; // 24시간
 
 export default async function CompanyPage({ params }: PageProps) {
   const { code } = await params;
-  const company = findCompanyByCode(code);
+  const company = await lookupCompany(code);
 
   if (!company) {
     notFound();

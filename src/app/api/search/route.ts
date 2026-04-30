@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod/v4';
 import { searchCompanies } from '@/lib/company-search';
+import { searchCompaniesD1 } from '@/lib/company-search-d1';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { D1Error } from '@/lib/d1-client';
 
 // Cloudflare Pages 호환: Edge Runtime 명시
 export const runtime = 'edge';
@@ -41,7 +43,16 @@ export async function GET(request: Request) {
     );
   }
 
-  const results = searchCompanies(parsed.data.q);
-
-  return NextResponse.json({ results });
+  // D1 우선, 실패 시 정적 JSON으로 fallback (가용성 보장)
+  try {
+    const results = await searchCompaniesD1(parsed.data.q);
+    return NextResponse.json({ results, source: 'd1' });
+  } catch (error) {
+    if (error instanceof D1Error) {
+      // D1 binding 없음 / 쿼리 실패 → 정적 JSON으로 fallback
+      const results = searchCompanies(parsed.data.q);
+      return NextResponse.json({ results, source: 'fallback' });
+    }
+    throw error;
+  }
 }

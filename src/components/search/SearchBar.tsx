@@ -31,7 +31,9 @@ export function SearchBar() {
         `/api/search?q=${encodeURIComponent(searchQuery)}`,
       );
       if (response.ok) {
-        const data = await response.json();
+        const data = (await response.json()) as {
+          results?: readonly SearchResult[];
+        };
         setResults(data.results ?? []);
         setIsOpen(true);
       }

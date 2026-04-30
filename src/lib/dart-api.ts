@@ -114,18 +114,25 @@ export async function fetchCompanyInfo(
       return null;
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as {
+      status?: string;
+      corp_code?: string;
+      corp_name?: string;
+      stock_code?: string;
+      induty_code?: string;
+      corp_cls?: string;
+    };
 
     if (data.status !== '000') {
       return null;
     }
 
     return {
-      corpCode: data.corp_code,
-      corpName: data.corp_name,
+      corpCode: data.corp_code ?? '',
+      corpName: data.corp_name ?? '',
       stockCode: data.stock_code ?? '',
       industry: data.induty_code ?? '',
-      listedMarket: parseMarket(data.corp_cls),
+      listedMarket: parseMarket(data.corp_cls ?? ''),
     };
   } catch {
     return null;

@@ -1,0 +1,51 @@
+name: Sync Companies (Weekly)
+
+# 매주 월요일 03:00 UTC (한국시간 12:00) 자동 실행
+# workflow_dispatch로 수동 실행도 가능
+on:
+  schedule:
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    name: Trigger Cloudflare Pages sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Call /api/sync/companies
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          SYNC_URL: https://jusik101.pages.dev/api/sync/companies
+        run: |
+          set -euo pipefail
+
+          # 응답을 변수에 캡처하면서 HTTP 코드 별도 출력
+          RESPONSE=$(curl -sS -X POST "$SYNC_URL" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Content-Type: application/json" \
+            --max-time 120 \
+            -w "\n__HTTP_CODE__:%{http_code}")
+
+          HTTP_CODE=$(echo "$RESPONSE" | grep -oE '__HTTP_CODE__:[0-9]+' | cut -d: -f2)
+          BODY=$(echo "$RESPONSE" | sed '/__HTTP_CODE__:/d')
+
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response Body:"
+          echo "$BODY"
+
+          # 200이 아니면 실패 처리
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Sync failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+
+          # 응답에 success: true 있는지 확인
+          if echo "$BODY" | grep -q '"success":true'; then
+            SYNCED=$(echo "$BODY" | grep -oE '"synced":[0-9]+' | cut -d: -f2)
+            echo "::notice::Successfully synced $SYNCED companies"
+          else
+            echo "::error::Sync response did not indicate success"
+            exit 1
+          fi

@@ -19,7 +19,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod/v4';
 import JSZip from 'jszip';
-import { XMLParser } from 'fast-xml-parser';
 import { getD1, d1BulkInsert, D1Error } from '@/lib/d1-client';
 
 // Cloudflare Pages 호환: Edge Runtime 명시
@@ -69,9 +68,8 @@ export async function POST(request: Request) {
     // 3. corpCode.xml ZIP 다운로드
     const xmlText = await downloadCorpCodeXml(apiKey);
 
-    // 4. XML 파싱 → 검증 → 상장사 필터링
-    const corpCodes = parseCorpCodeXml(xmlText);
-    const listed = corpCodes.filter((c) => c.stock_code.trim() !== '');
+    // 4. XML 파싱 (parseCorpCodeXml 내부에서 상장사 사전 필터 + Zod 검증)
+    const listed = parseCorpCodeXml(xmlText);
 
     // 5. D1 companies 테이블에 UPSERT
     const db = await getD1();
@@ -89,7 +87,6 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
-      total: corpCodes.length,
       listed: listed.length,
       synced: inserted,
       chunks,
@@ -160,29 +157,49 @@ async function downloadCorpCodeXml(apiKey: string): Promise<string> {
   return xmlFile.async('string');
 }
 
-/** XML 파싱 + 검증 → CorpCode[] */
+/**
+ * XML 파싱: 정규식 기반으로 상장사만 추출
+ *
+ * fast-xml-parser는 100,000+ 항목 전체 DOM 빌드 시 Edge runtime CPU/메모리 초과.
+ * 정규식으로 <list> 블록을 순회하며 stock_code가 비어있지 않은 것만 추출.
+ *
+ * OpenDART corpCode.xml 구조:
+ * <list>
+ *   <corp_code>00126380</corp_code>
+ *   <corp_name>삼성전자</corp_name>
+ *   <corp_eng_name>Samsung Electronics</corp_eng_name>
+ *   <stock_code>005930</stock_code>
+ *   <modify_date>20240321</modify_date>
+ * </list>
+ */
 function parseCorpCodeXml(xmlText: string): CorpCode[] {
-  const parser = new XMLParser({
-    ignoreAttributes: true,
-    parseTagValue: false, // 모든 값을 string으로 유지 (corp_code, stock_code 보존)
-    trimValues: true,
-  });
-
-  const parsed = parser.parse(xmlText) as {
-    result?: { list?: unknown };
-  };
-
-  const list = parsed.result?.list;
-  if (!Array.isArray(list)) {
-    throw new Error('XML 구조 이상: result.list가 배열이 아닙니다.');
-  }
-
-  // Zod로 각 항목 검증 (실패한 것은 로깅 후 스킵)
   const valid: CorpCode[] = [];
   let invalidCount = 0;
 
-  for (const item of list) {
-    const result = corpCodeSchema.safeParse(item);
+  // <list>...</list> 블록 단위로 순회 (한 번에 1개씩 처리 → 메모리 절약)
+  const listBlockRegex = /<list>([\s\S]*?)<\/list>/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = listBlockRegex.exec(xmlText)) !== null) {
+    const block = match[1];
+    if (!block) continue;
+
+    const stockCode = extractTag(block, 'stock_code');
+    // 상장사가 아니면 즉시 스킵 (Zod 호출 안 함)
+    if (!stockCode || stockCode.trim() === '') continue;
+
+    const corpCode = extractTag(block, 'corp_code');
+    const corpName = extractTag(block, 'corp_name');
+    const modifyDate = extractTag(block, 'modify_date');
+
+    // Zod 검증 (~2,500개만 도달)
+    const result = corpCodeSchema.safeParse({
+      corp_code: corpCode,
+      corp_name: corpName,
+      stock_code: stockCode,
+      modify_date: modifyDate,
+    });
+
     if (result.success) {
       valid.push(result.data);
     } else {
@@ -195,6 +212,13 @@ function parseCorpCodeXml(xmlText: string): CorpCode[] {
   }
 
   return valid;
+}
+
+/** XML 블록에서 단일 태그 텍스트 추출 */
+function extractTag(block: string, tag: string): string {
+  const re = new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`);
+  const m = re.exec(block);
+  return m?.[1]?.trim() ?? '';
 }
 
 /**

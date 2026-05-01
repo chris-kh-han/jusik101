@@ -22,10 +22,15 @@ jobs:
           set -euo pipefail
 
           # 응답을 변수에 캡처하면서 HTTP 코드 별도 출력
+          # User-Agent 명시 (Cloudflare 봇 차단 우회)
+          # IPv4 강제 (--ipv4) - GitHub Actions runner IPv6 라우팅 이슈 회피
           RESPONSE=$(curl -sS -X POST "$SYNC_URL" \
             -H "Authorization: Bearer $CRON_SECRET" \
             -H "Content-Type: application/json" \
-            --max-time 120 \
+            -H "User-Agent: jusik101-cron/1.0 (GitHub Actions)" \
+            --ipv4 \
+            --max-time 180 \
+            --retry 2 --retry-connrefused --retry-delay 5 \
             -w "\n__HTTP_CODE__:%{http_code}")
 
           HTTP_CODE=$(echo "$RESPONSE" | grep -oE '__HTTP_CODE__:[0-9]+' | cut -d: -f2)

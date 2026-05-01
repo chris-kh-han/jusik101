@@ -211,19 +211,38 @@ export function extractMetricsFromIndices(
   };
 }
 
-/** 배당 raw → InvestmentMetrics 일부 필드 */
-export function extractDividendMetrics(dividend: readonly DartDividendItem[]): {
-  dividendYield: number | null;
-  dividendPerShare: number | null;
-  payoutRatio: number | null;
-} {
+/** 한 시점의 배당/EPS 데이터 */
+export interface DividendSnapshot {
+  readonly periodLabel: string; // '당기' | '전기' | '전전기' (또는 결산일)
+  readonly dividendYield: number | null; // 배당수익률 %
+  readonly dividendPerShare: number | null; // 주당 현금배당금 (원)
+  readonly payoutRatio: number | null; // 배당성향 %
+  readonly eps: number | null; // (연결)주당순이익 (원)
+}
+
+/** alotMatter 응답을 3년치 시계열로 변환 + BPS 계산용 보조 정보 */
+export interface DividendData {
+  /** 최신 시점 (당기) */
+  readonly current: DividendSnapshot;
+  /** 다년치 (당기/전기/전전기 순) */
+  readonly history: readonly DividendSnapshot[];
+  /** EPS와 순이익으로 역산한 추정 발행주식수 (BPS 계산용) */
+  readonly estimatedShares: number | null;
+  /** 결산일 (당기) */
+  readonly stlmDt: string;
+}
+
+/** 배당 raw → 3년치 + EPS + 추정 발행주식수 */
+export function extractDividendData(
+  dividend: readonly DartDividendItem[],
+): DividendData {
   const parseFloat3 = (raw: string | undefined): number | null => {
     if (!raw || raw === '-' || raw === '') return null;
     const n = Number(raw.replace(/,/g, ''));
     return Number.isFinite(n) ? n : null;
   };
 
-  // 보통주 우선 (없으면 첫 항목)
+  // 보통주 우선
   const findItem = (se: string) => {
     const common = dividend.find(
       (d) => d.se === se && d.stock_knd === '보통주',
@@ -231,9 +250,71 @@ export function extractDividendMetrics(dividend: readonly DartDividendItem[]): {
     return common ?? dividend.find((d) => d.se === se);
   };
 
+  // 3개 기간 (당기/전기/전전기) 추출
+  const periods: Array<
+    keyof Pick<DartDividendItem, 'thstrm' | 'frmtrm' | 'lwfr'>
+  > = ['thstrm', 'frmtrm', 'lwfr'];
+  const labels: Record<(typeof periods)[number], string> = {
+    thstrm: '당기',
+    frmtrm: '전기',
+    lwfr: '전전기',
+  };
+
+  const yieldItem = findItem('현금배당수익률(%)');
+  const dpsItem = findItem('주당 현금배당금(원)');
+  const payoutItem = findItem('(연결)현금배당성향(%)');
+  const epsItem = findItem('(연결)주당순이익(원)');
+  const netIncomeItem = findItem('(연결)당기순이익(백만원)');
+
+  const history: DividendSnapshot[] = periods.map((p) => ({
+    periodLabel: labels[p],
+    dividendYield: parseFloat3(yieldItem?.[p]),
+    dividendPerShare: parseFloat3(dpsItem?.[p]),
+    payoutRatio: parseFloat3(payoutItem?.[p]),
+    eps: parseFloat3(epsItem?.[p]),
+  }));
+
+  const current = history[0]!;
+
+  // 발행주식수 = 당기순이익(백만원 → 원) / EPS(원)
+  const netIncomeMillion = parseFloat3(netIncomeItem?.thstrm);
+  const epsCurrent = current.eps;
+  const estimatedShares =
+    netIncomeMillion && epsCurrent && epsCurrent !== 0
+      ? Math.round((netIncomeMillion * 1_000_000) / epsCurrent)
+      : null;
+
   return {
-    dividendYield: parseFloat3(findItem('현금배당수익률(%)')?.thstrm),
-    dividendPerShare: parseFloat3(findItem('주당 현금배당금(원)')?.thstrm),
-    payoutRatio: parseFloat3(findItem('(연결)현금배당성향(%)')?.thstrm),
+    current,
+    history,
+    estimatedShares,
+    stlmDt: dividend[0]?.stlm_dt ?? '',
+  };
+}
+
+/**
+ * 발행주식수와 자본총계로 BPS (주당순자산) 계산
+ *
+ * @example
+ * const bps = calculateBPS(estimatedShares, totalEquity);
+ * // BPS = 자본총계 / 발행주식수
+ */
+export function calculateBPS(
+  shares: number | null,
+  totalEquity: number | null,
+): number | null {
+  if (!shares || !totalEquity || shares === 0) return null;
+  return Math.round(totalEquity / shares);
+}
+
+/** 하위 호환을 위한 wrapper (기존 코드 사용처용) */
+export function extractDividendMetrics(dividend: readonly DartDividendItem[]) {
+  const data = extractDividendData(dividend);
+  return {
+    dividendYield: data.current.dividendYield,
+    dividendPerShare: data.current.dividendPerShare,
+    payoutRatio: data.current.payoutRatio,
+    eps: data.current.eps,
+    estimatedShares: data.estimatedShares,
   };
 }

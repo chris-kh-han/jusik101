@@ -19,7 +19,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod/v4';
 import JSZip from 'jszip';
-import { getD1, d1BulkInsert, D1Error } from '@/lib/d1-client';
+import { getD1, d1Batch, D1Error } from '@/lib/d1-client';
 
 // Cloudflare Pages 호환: Edge Runtime 명시
 export const runtime = 'edge';
@@ -73,19 +73,53 @@ export async function POST(request: Request) {
     // 4. XML 파싱 (parseCorpCodeXml 내부에서 상장사 사전 필터 + Zod 검증)
     const listed = parseCorpCodeXml(xmlText);
 
-    // 5. D1 companies 테이블에 UPSERT
+    // 5. D1 companies 테이블에 UPSERT (market_cap, listed_market은 보존)
+    //    sync-market 워크플로우가 KOSPI/KOSDAQ 분류와 시가총액을 별도 관리하므로
+    //    ON CONFLICT로 corp_name/stock_code/modify_date만 갱신
     const db = await getD1();
     const now = Date.now();
+
     const rows: CompanyRow[] = listed.map((c) => ({
       corp_code: c.corp_code,
       corp_name: c.corp_name,
       stock_code: c.stock_code || null,
-      listed_market: inferMarket(c.stock_code),
+      listed_market: inferMarket(c.stock_code), // 새 row 한정 — 기존 row는 보존됨
       modify_date: c.modify_date,
       updated_at: now,
     }));
 
-    const { inserted, chunks } = await d1BulkInsert(db, 'companies', rows, 500);
+    // SQLite ON CONFLICT(corp_code) DO UPDATE — listed_market과 market_cap은 sync-market가 관리
+    const upsertSql = `
+      INSERT INTO companies (corp_code, corp_name, stock_code, listed_market, modify_date, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(corp_code) DO UPDATE SET
+        corp_name = excluded.corp_name,
+        stock_code = excluded.stock_code,
+        modify_date = excluded.modify_date,
+        updated_at = excluded.updated_at
+    `;
+
+    const CHUNK = 500;
+    let inserted = 0;
+    let chunks = 0;
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const slice = rows.slice(i, i + CHUNK);
+      const stmts = slice.map((r) =>
+        db
+          .prepare(upsertSql)
+          .bind(
+            r.corp_code,
+            r.corp_name,
+            r.stock_code,
+            r.listed_market,
+            r.modify_date,
+            r.updated_at,
+          ),
+      );
+      await d1Batch(db, stmts);
+      inserted += slice.length;
+      chunks += 1;
+    }
 
     return NextResponse.json({
       success: true,

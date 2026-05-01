@@ -14,24 +14,15 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - name: Diagnose connectivity to Cloudflare Pages
+      # Cloudflare Pages Worker가 cold start인 경우 첫 요청이 느릴 수 있어
+      # 가벼운 GET 요청으로 워밍업 후 본 요청 진행
+      - name: Warm up Worker
         env:
           BASE_URL: https://jusik101.pages.dev
         run: |
-          echo "=== DNS resolution ==="
-          dig +short jusik101.pages.dev | head -5 || true
-
-          echo "=== Test GET / (homepage) ==="
-          curl -sS -o /dev/null -w "HTTP %{http_code} | %{time_total}s | %{size_download} bytes\n" \
-            --max-time 30 "$BASE_URL/" || echo "GET / failed: $?"
-
-          echo "=== Test GET /robots.txt (small file) ==="
-          curl -sS -o /dev/null -w "HTTP %{http_code} | %{time_total}s | %{size_download} bytes\n" \
-            --max-time 30 "$BASE_URL/robots.txt" || echo "GET /robots.txt failed: $?"
-
-          echo "=== Test GET /api/search?q=test (Edge Function) ==="
-          curl -sS -o /dev/null -w "HTTP %{http_code} | %{time_total}s | %{size_download} bytes\n" \
-            --max-time 30 "$BASE_URL/api/search?q=test" || echo "GET /api/search failed: $?"
+          curl -sS -o /dev/null --max-time 30 --ipv4 \
+            -H "User-Agent: jusik101-cron/1.0" \
+            "$BASE_URL/api/search?q=test" || true
 
       - name: Call /api/sync/companies
         env:
@@ -40,25 +31,33 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "=== POST /api/sync/companies (verbose) ==="
-          # -v로 자세한 로그 (헤더, 연결 단계 등 노출)
-          # --max-time 60: GitHub Actions에선 60초 한도로 빠른 실패 유도
-          RESPONSE=$(curl -v -X POST "$SYNC_URL" \
+          RESPONSE=$(curl -sS -X POST "$SYNC_URL" \
             -H "Authorization: Bearer $CRON_SECRET" \
             -H "Content-Type: application/json" \
             -H "User-Agent: jusik101-cron/1.0" \
             --ipv4 \
-            --max-time 60 \
-            -w "\n__HTTP_CODE__:%{http_code}\n__TIME__:%{time_total}\n" \
-            2>&1) || true
-
-          echo "=== Response ==="
-          echo "$RESPONSE"
+            --max-time 90 \
+            --retry 2 --retry-delay 5 --retry-all-errors \
+            -w "\n__HTTP_CODE__:%{http_code}\n__TIME__:%{time_total}\n")
 
           HTTP_CODE=$(echo "$RESPONSE" | grep -oE '__HTTP_CODE__:[0-9]+' | tail -1 | cut -d: -f2)
-          if [ "$HTTP_CODE" = "200" ]; then
-            echo "::notice::Sync successful"
+          TIME_TOTAL=$(echo "$RESPONSE" | grep -oE '__TIME__:[0-9.]+' | tail -1 | cut -d: -f2)
+          BODY=$(echo "$RESPONSE" | sed '/^__HTTP_CODE__:/d; /^__TIME__:/d')
+
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Total Time:  ${TIME_TOTAL}s"
+          echo "Response:"
+          echo "$BODY"
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Sync failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+
+          if echo "$BODY" | grep -q '"success":true'; then
+            SYNCED=$(echo "$BODY" | grep -oE '"synced":[0-9]+' | cut -d: -f2)
+            echo "::notice::Successfully synced $SYNCED companies in ${TIME_TOTAL}s"
           else
-            echo "::error::Sync failed with HTTP code: ${HTTP_CODE:-no-response}"
+            echo "::error::Sync response did not indicate success"
             exit 1
           fi

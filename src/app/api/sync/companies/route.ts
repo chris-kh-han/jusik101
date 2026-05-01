@@ -25,7 +25,9 @@ import { getD1, d1BulkInsert, D1Error } from '@/lib/d1-client';
 export const runtime = 'edge';
 
 const CORP_CODE_URL = 'https://opendart.fss.or.kr/api/corpCode.xml';
-const SYNC_TIMEOUT_MS = 60_000; // 60초 (1MB ZIP 다운로드 + 파싱 여유)
+const SYNC_TIMEOUT_MS = 120_000; // 120초 (OpenDART 응답 지연 대비)
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 2_000;
 
 /** OpenDART corpCode.xml의 단일 항목 스키마 */
 const corpCodeSchema = z.object({
@@ -131,30 +133,55 @@ function verifyAuth(request: Request): NextResponse | null {
   return null;
 }
 
-/** OpenDART corpCode.xml ZIP 다운로드 + 압축 해제 */
+/** OpenDART corpCode.xml ZIP 다운로드 + 압축 해제 (재시도 포함) */
 async function downloadCorpCodeXml(apiKey: string): Promise<string> {
   const url = new URL(CORP_CODE_URL);
   url.searchParams.set('crtfc_key', apiKey);
 
-  const response = await fetch(url.toString(), {
-    signal: AbortSignal.timeout(SYNC_TIMEOUT_MS),
-  });
+  let lastError: unknown;
 
-  if (!response.ok) {
-    throw new Error(
-      `OpenDART corpCode 다운로드 실패: ${response.status} ${response.statusText}`,
-    );
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const response = await fetch(url.toString(), {
+        signal: AbortSignal.timeout(SYNC_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `OpenDART corpCode 다운로드 실패: ${response.status} ${response.statusText}`,
+        );
+      }
+
+      const buffer = await response.arrayBuffer();
+      const zip = await JSZip.loadAsync(buffer);
+      const xmlFile = zip.file('CORPCODE.xml');
+
+      if (!xmlFile) {
+        throw new Error('ZIP 안에 CORPCODE.xml이 없습니다.');
+      }
+
+      return xmlFile.async('string');
+    } catch (error) {
+      lastError = error;
+      const msg = error instanceof Error ? error.message : String(error);
+      console.warn(
+        `[sync/companies] 다운로드 시도 ${attempt}/${MAX_RETRIES} 실패: ${msg}`,
+      );
+
+      if (attempt < MAX_RETRIES) {
+        // 지수 백오프
+        await new Promise((resolve) =>
+          setTimeout(resolve, RETRY_DELAY_MS * attempt),
+        );
+      }
+    }
   }
 
-  const buffer = await response.arrayBuffer();
-  const zip = await JSZip.loadAsync(buffer);
-  const xmlFile = zip.file('CORPCODE.xml');
-
-  if (!xmlFile) {
-    throw new Error('ZIP 안에 CORPCODE.xml이 없습니다.');
-  }
-
-  return xmlFile.async('string');
+  throw new Error(
+    `OpenDART 다운로드 ${MAX_RETRIES}회 시도 실패: ${
+      lastError instanceof Error ? lastError.message : '알 수 없는 오류'
+    }`,
+  );
 }
 
 /**

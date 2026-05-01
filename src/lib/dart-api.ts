@@ -37,9 +37,9 @@ async function dartFetch<T>(
   const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
   try {
+    // Cloudflare Workers fetch는 표준 cache 옵션 미지원 — 캐시는 페이지 레벨 revalidate(24h)에 의존.
     const response = await fetch(url.toString(), {
       signal: controller.signal,
-      next: { revalidate: 86400 },
     });
 
     if (!response.ok) {
@@ -106,7 +106,6 @@ export async function fetchCompanyInfo(
       `${BASE_URL}/company.json?crtfc_key=${getApiKey()}&corp_code=${corpCode}`,
       {
         signal: AbortSignal.timeout(TIMEOUT_MS),
-        next: { revalidate: 86400 },
       },
     );
 

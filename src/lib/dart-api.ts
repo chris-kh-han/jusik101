@@ -54,6 +54,8 @@ async function dartFetch<T>(
       throw new DartApiError(data.status, data.message);
     }
 
+    console.log(data);
+
     return data;
   } catch (error) {
     if (error instanceof DartApiError) {
@@ -138,6 +140,50 @@ export async function fetchCompanyInfo(
   }
 }
 
+/** OpenDART /company.json 전체 raw 응답 */
+export interface DartCompanyDetail {
+  readonly corp_code: string;
+  readonly corp_name: string;
+  readonly corp_name_eng?: string;
+  readonly stock_name?: string;
+  readonly stock_code?: string;
+  readonly ceo_nm?: string;
+  readonly corp_cls?: string;
+  readonly jurir_no?: string;
+  readonly bizr_no?: string;
+  readonly adres?: string;
+  readonly hm_url?: string;
+  readonly ir_url?: string;
+  readonly phn_no?: string;
+  readonly fax_no?: string;
+  readonly induty_code?: string;
+  readonly est_dt?: string; // YYYYMMDD
+  readonly acc_mt?: string; // 결산월 (예: '12')
+}
+
+/**
+ * 기업 개황 전체 raw 데이터 조회 (CEO, 주소, 홈페이지 등 포함)
+ */
+export async function fetchCompanyDetail(
+  corpCode: string,
+): Promise<DartCompanyDetail | null> {
+  try {
+    const response = await fetch(
+      `${BASE_URL}/company.json?crtfc_key=${getApiKey()}&corp_code=${corpCode}`,
+      { signal: AbortSignal.timeout(TIMEOUT_MS) },
+    );
+    if (!response.ok) return null;
+
+    const data = (await response.json()) as DartCompanyDetail & {
+      status?: string;
+    };
+    if (data.status !== '000') return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * 단일회사 전체 재무제표 조회
  */
@@ -155,6 +201,87 @@ export async function fetchFinancialStatements(
   });
 
   return data.list ?? [];
+}
+
+/**
+ * 재무비율 카테고리 코드
+ *   M210000: 수익성지표 (PER, ROE, 매출총이익률 등)
+ *   M220000: 안정성지표 (부채비율, 유동비율, 이자보상비율 등)
+ *   M230000: 성장성지표 (매출증가율, 영업이익증가율 등)
+ *   M240000: 활동성지표 (회전율 등 + 배당성향)
+ */
+export type IndexCategoryCode = 'M210000' | 'M220000' | 'M230000' | 'M240000';
+
+export const INDEX_CATEGORIES: readonly IndexCategoryCode[] = [
+  'M210000',
+  'M220000',
+  'M230000',
+  'M240000',
+];
+
+/** OpenDART 재무비율 응답 행 */
+export interface DartFinancialIndex {
+  readonly idx_cl_code: string;
+  readonly idx_cl_nm: string;
+  readonly idx_code: string;
+  readonly idx_nm: string;
+  readonly idx_val?: string;
+  readonly stlm_dt: string;
+}
+
+/**
+ * 단일회사 재무비율 조회 (한 카테고리)
+ *
+ * @param idxClCode 재무비율 카테고리 코드 (M210000~M240000)
+ * @example
+ *   const profitability = await fetchFinancialIndex(corp, 2025, '11011', 'M210000');
+ *   // ROE, 순이익률, 매출총이익률 등
+ */
+export async function fetchFinancialIndex(
+  corpCode: string,
+  year: number,
+  reportCode: ReportCode = '11011',
+  idxClCode: IndexCategoryCode = 'M210000',
+): Promise<readonly DartFinancialIndex[]> {
+  const data = await dartFetch<DartFinancialIndex>('fnlttSinglIndx.json', {
+    corp_code: corpCode,
+    bsns_year: String(year),
+    reprt_code: reportCode,
+    idx_cl_code: idxClCode,
+  });
+  return data.list ?? [];
+}
+
+/** OpenDART 배당사항 응답 행 */
+export interface DartDividendItem {
+  readonly se: string; // '주당 현금배당금(원)' 등
+  readonly stock_knd?: string; // '보통주' / '우선주'
+  readonly thstrm: string; // 당기 (e.g. '1,446')
+  readonly frmtrm: string; // 전기
+  readonly lwfr: string; // 전전기
+  readonly stlm_dt: string;
+}
+
+/** 단일회사 배당사항 조회 */
+export async function fetchDividend(
+  corpCode: string,
+  year: number,
+  reportCode: ReportCode = '11011',
+): Promise<readonly DartDividendItem[]> {
+  try {
+    const data = await dartFetch<DartDividendItem>('alotMatter.json', {
+      corp_code: corpCode,
+      bsns_year: String(year),
+      reprt_code: reportCode,
+    });
+    return data.list ?? [];
+  } catch (error) {
+    // 배당 데이터 없는 회사 다수 — 013 에러는 정상
+    if (error instanceof DartApiError && error.code === '013') {
+      return [];
+    }
+    throw error;
+  }
 }
 
 /**

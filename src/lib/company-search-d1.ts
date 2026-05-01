@@ -22,6 +22,7 @@ interface CompanyRow {
   readonly corp_name: string;
   readonly stock_code: string | null;
   readonly listed_market: string | null;
+  readonly market_cap?: number | null;
 }
 
 interface ScoredCompanyRow extends CompanyRow {
@@ -46,36 +47,37 @@ export async function searchCompaniesD1(
 
   // SQLite LIKE는 ASCII만 case-insensitive (한글은 대소문자 개념 없으므로 OK)
   // SQL 인젝션 방지를 위해 항상 prepared statement 사용
+  // 정렬: 매칭 점수 → 시가총액 (DESC, NULL은 SQLite에서 DESC 시 마지막) → 회사명
   const sql = `
-    SELECT corp_code, corp_name, stock_code, listed_market, MAX(score) as score
+    SELECT corp_code, corp_name, stock_code, listed_market, market_cap, MAX(score) as score
     FROM (
       -- 정확 일치
-      SELECT corp_code, corp_name, stock_code, listed_market, 100 as score
+      SELECT corp_code, corp_name, stock_code, listed_market, market_cap, 100 as score
       FROM companies
       WHERE corp_name = ?1 OR stock_code = ?1
       UNION ALL
       -- 회사명 접두사
-      SELECT corp_code, corp_name, stock_code, listed_market, 80 as score
+      SELECT corp_code, corp_name, stock_code, listed_market, market_cap, 80 as score
       FROM companies
       WHERE corp_name LIKE ?2
       UNION ALL
       -- 종목코드 접두사
-      SELECT corp_code, corp_name, stock_code, listed_market, 75 as score
+      SELECT corp_code, corp_name, stock_code, listed_market, market_cap, 75 as score
       FROM companies
       WHERE stock_code LIKE ?2
       UNION ALL
       -- 회사명 부분 일치
-      SELECT corp_code, corp_name, stock_code, listed_market, 50 as score
+      SELECT corp_code, corp_name, stock_code, listed_market, market_cap, 50 as score
       FROM companies
       WHERE corp_name LIKE ?3
       UNION ALL
       -- 종목코드 부분 일치
-      SELECT corp_code, corp_name, stock_code, listed_market, 45 as score
+      SELECT corp_code, corp_name, stock_code, listed_market, market_cap, 45 as score
       FROM companies
       WHERE stock_code LIKE ?3
     )
     GROUP BY corp_code
-    ORDER BY score DESC, corp_name ASC
+    ORDER BY score DESC, market_cap DESC, corp_name ASC
     LIMIT ?4
   `;
 

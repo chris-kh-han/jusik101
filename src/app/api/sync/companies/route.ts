@@ -241,11 +241,33 @@ function parseCorpCodeXml(xmlText: string): CorpCode[] {
   return valid;
 }
 
-/** XML 블록에서 단일 태그 텍스트 추출 */
+/** XML 블록에서 단일 태그 텍스트 추출 + HTML 엔티티 디코딩 */
 function extractTag(block: string, tag: string): string {
   const re = new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`);
   const m = re.exec(block);
-  return m?.[1]?.trim() ?? '';
+  const raw = m?.[1]?.trim() ?? '';
+  return decodeXmlEntities(raw);
+}
+
+/**
+ * XML/HTML 엔티티 디코딩
+ *
+ * OpenDART corpCode.xml에는 회사명에 &amp;, &lt; 등이 포함될 수 있음.
+ * 예: "삼성E&amp;A" → "삼성E&A"
+ *
+ * 5개 표준 엔티티 + 숫자 참조(&#123;, &#x1F;) 처리.
+ */
+function decodeXmlEntities(text: string): string {
+  return text
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) =>
+      String.fromCodePoint(parseInt(hex, 16)),
+    )
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&');
 }
 
 /**

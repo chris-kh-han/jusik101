@@ -24,6 +24,7 @@ import {
   extractMetricsFromIndices,
   extractDividendData,
   calculateBPS,
+  calculateValuationRatios,
 } from '@/lib/company-data-loader';
 import { buildQuarterlySeries } from '@/lib/quarterly-utils';
 import type { D1Database } from '@cloudflare/workers-types';
@@ -141,20 +142,33 @@ export default async function CompanyPage({ params }: PageProps) {
     : null;
   const dividendData = pageData ? extractDividendData(pageData.dividend) : null;
 
-  // 가장 최근 사업보고서의 자본총계로 BPS 계산
-  // (자본총계 / 발행주식수, 발행주식수는 (연결)당기순이익 / EPS로 역산)
-  const annualReportForBPS = pageData?.quarterlyReports.find(
-    (r) => r.reportCode === '11011',
-  );
-  const totalEquity = annualReportForBPS?.items.find(
-    (it) => it.account_nm === '자본총계' && it.sj_div === 'BS',
-  )?.thstrm_amount;
-  const totalEquityNum = totalEquity
-    ? Number(totalEquity.replace(/,/g, ''))
-    : null;
+  // 가장 최근 사업보고서 (가장 큰 연도) — find는 가장 오래된 거 반환할 수 있어 명시적으로 sort
+  const annualReportForRatios = pageData?.quarterlyReports
+    .filter((r) => r.reportCode === '11011')
+    .sort((a, b) => b.year - a.year)[0];
+  const findAmount = (accountName: string, sjDiv: string) => {
+    const raw = annualReportForRatios?.items.find(
+      (it) => it.account_nm === accountName && it.sj_div === sjDiv,
+    )?.thstrm_amount;
+    if (!raw) return null;
+    const n = Number(raw.replace(/,/g, ''));
+    return Number.isFinite(n) ? n : null;
+  };
+  const totalEquityNum = findAmount('자본총계', 'BS');
+  const netIncomeNum = findAmount('당기순이익', 'IS');
+  const revenueNum = findAmount('매출액', 'IS');
+
   const bps = calculateBPS(
     dividendData?.estimatedShares ?? null,
     totalEquityNum,
+  );
+
+  // PER/PBR/PSR — 시가총액 / 재무 데이터 (시총이 있을 때만 유효)
+  const valuation = calculateValuationRatios(
+    marketCap,
+    netIncomeNum,
+    totalEquityNum,
+    revenueNum,
   );
 
   // 사업보고서 기반 기존 카드 데이터 (HealthScore, KeyMetrics, DashboardCharts)
@@ -231,10 +245,9 @@ export default async function CompanyPage({ params }: PageProps) {
               dividendYield: dividendData.current.dividendYield,
               dividendPerShare: dividendData.current.dividendPerShare,
               payoutRatio: dividendData.current.payoutRatio,
-              // PER, PBR, PSR — 시장가 기반이라 OpenDART에 없음
-              per: null,
-              pbr: null,
-              psr: null,
+              per: valuation.per,
+              pbr: valuation.pbr,
+              psr: valuation.psr,
             }}
             dividendHistory={dividendData.history}
           />

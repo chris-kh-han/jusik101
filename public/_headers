@@ -1,0 +1,10 @@
+# Cloudflare Pages 보안 헤더
+# 참고: https://developers.cloudflare.com/pages/configuration/headers/
+# 기존 src/proxy.ts에서 마이그레이션됨
+
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-DNS-Prefetch-Control: on
+  Permissions-Policy: camera=(), microphone=(), geolocation=()

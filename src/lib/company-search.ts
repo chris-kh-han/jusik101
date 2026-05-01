@@ -6,13 +6,15 @@ interface CompanyEntry {
   readonly corpName: string;
   readonly stockCode: string;
   readonly listedMarket: string;
+  readonly marketCap?: number | null;
 }
 
-const companies: readonly CompanyEntry[] = companiesData;
+const companies: readonly CompanyEntry[] =
+  companiesData as readonly CompanyEntry[];
 
 /**
  * 기업 검색 (이름 또는 종목코드)
- * 정확 매치 → 접두사 매치 → 포함 매치 순으로 정렬
+ * 정렬: 매칭 점수 → 시가총액 (큰 순) → 회사명
  */
 export function searchCompanies(
   query: string,
@@ -32,7 +34,13 @@ export function searchCompanies(
     .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
 
   return scored
-    .toSorted((a, b) => b.score - a.score)
+    .toSorted((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      const aCap = a.company.marketCap ?? -1;
+      const bCap = b.company.marketCap ?? -1;
+      if (bCap !== aCap) return bCap - aCap;
+      return a.company.corpName.localeCompare(b.company.corpName, 'ko');
+    })
     .slice(0, limit)
     .map(({ company }) => ({
       corpCode: company.corpCode,

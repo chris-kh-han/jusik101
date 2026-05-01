@@ -103,13 +103,15 @@ export default async function CompanyPage({ params }: PageProps) {
       error = '해당 연도의 재무제표 데이터가 없습니다.';
     }
   } catch (e) {
+    console.error('[CompanyPage] financial fetch error:', e);
     if (e instanceof DartApiError && e.code === '013') {
       error = '해당 기업의 재무제표 데이터가 없습니다.';
     } else if (e instanceof Error && e.message.includes('DART_API_KEY')) {
       error =
         'DART API 키가 설정되지 않았습니다. .env.local 파일에 DART_API_KEY를 설정해주세요.';
     } else {
-      error = '재무제표 데이터를 불러오는 중 오류가 발생했습니다.';
+      const msg = e instanceof Error ? e.message : String(e);
+      error = `재무제표 데이터를 불러오는 중 오류가 발생했습니다: ${msg}`;
     }
   }
 

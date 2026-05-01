@@ -62,3 +62,7 @@ next-env.d.ts
 
 # 백업 파일
 *.bak
+
+# Cloudflare Pages 로컬 dev 환경변수 (.env.local과 동일한 값)
+.dev.vars
+.dev.vars.*

@@ -14,6 +14,7 @@
     "d1:seed-local": "pnpm exec wrangler d1 execute jusik101-companies --local --file=migrations/0001_companies.sql && pnpm exec wrangler d1 execute jusik101-companies --local --file=migrations/0002_market_data.sql",
     "d1:export-prod": "pnpm exec wrangler d1 export jusik101-companies --remote --output=.wrangler/prod-dump.sql",
     "d1:import-local": "pnpm exec wrangler d1 execute jusik101-companies --local --file=.wrangler/prod-dump.sql",
+    "refresh-companies": "bash scripts/refresh-companies-json.sh",
     "pages:deploy": "pnpm pages:build && wrangler pages deploy .vercel/output/static --project-name=jusik101"
   },
   "dependencies": {

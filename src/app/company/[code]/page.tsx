@@ -3,7 +3,10 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { findCompanyByCode } from '@/lib/company-search';
-import { findCompanyByCodeD1 } from '@/lib/company-search-d1';
+import {
+  findCompanyByCodeD1,
+  findCompanyByStockCodeD1,
+} from '@/lib/company-search-d1';
 import { D1Error } from '@/lib/d1-client';
 import { HealthScoreCard } from '@/components/dashboard/HealthScoreCard';
 import { KeyMetricsBar } from '@/components/dashboard/KeyMetricsBar';
@@ -16,15 +19,40 @@ export const runtime = 'edge';
 import { calculateRatios, getHealthScore } from '@/lib/financial-utils';
 import { DartApiError } from '@/lib/dart-api';
 
-/** D1 우선, 실패 시 정적 JSON으로 fallback */
+/**
+ * 회사 정보 조회 (다단계 fallback으로 데이터 품질 이슈 자동 보정)
+ *
+ * 우선순위:
+ *   1. D1: corp_code 직접 조회
+ *   2. 정적 JSON: corp_code 조회 → stock_code 추출 → D1 stock_code로 재조회
+ *      (예전 corp_code로 들어와도 D1의 정확한 corp_code로 자동 매핑)
+ *   3. 정적 JSON 그대로 반환 (D1 없을 때만)
+ */
 async function lookupCompany(corpCode: string) {
+  // 1. D1 직접 조회
   try {
     const fromD1 = await findCompanyByCodeD1(corpCode);
     if (fromD1) return fromD1;
   } catch (error) {
     if (!(error instanceof D1Error)) throw error;
   }
-  return findCompanyByCode(corpCode) ?? null;
+
+  // 2. 정적 JSON에서 corp_code → stock_code 매핑, D1에서 stock_code로 재조회
+  //    (companies.json에 잘못된 corp_code가 있어도 정확한 D1 데이터로 보정)
+  const staticHit = findCompanyByCode(corpCode);
+  if (staticHit?.stockCode) {
+    try {
+      const correctedFromD1 = await findCompanyByStockCodeD1(
+        staticHit.stockCode,
+      );
+      if (correctedFromD1) return correctedFromD1;
+    } catch (error) {
+      if (!(error instanceof D1Error)) throw error;
+    }
+  }
+
+  // 3. D1 사용 불가 시 정적 JSON으로 마무리 fallback
+  return staticHit ?? null;
 }
 
 interface PageProps {

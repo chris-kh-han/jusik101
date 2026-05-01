@@ -254,10 +254,17 @@ export function extractDividendData(
   const periods: Array<
     keyof Pick<DartDividendItem, 'thstrm' | 'frmtrm' | 'lwfr'>
   > = ['thstrm', 'frmtrm', 'lwfr'];
-  const labels: Record<(typeof periods)[number], string> = {
-    thstrm: '당기',
-    frmtrm: '전기',
-    lwfr: '전전기',
+
+  // stlm_dt에서 연도 파싱 (예: '2024-12-31' → 2024) 후 N년 전 계산
+  const stlmDt = dividend[0]?.stlm_dt ?? '';
+  const baseYear = stlmDt.length >= 4 ? parseInt(stlmDt.slice(0, 4), 10) : null;
+  const baseMonth = stlmDt.length >= 7 ? parseInt(stlmDt.slice(5, 7), 10) : 12;
+
+  // 결산월 표시 (2024년 12월처럼)
+  const periodWithMonth: Record<(typeof periods)[number], string> = {
+    thstrm: baseYear ? `${baseYear}년 ${baseMonth}월` : '당기',
+    frmtrm: baseYear ? `${baseYear - 1}년 ${baseMonth}월` : '전기',
+    lwfr: baseYear ? `${baseYear - 2}년 ${baseMonth}월` : '전전기',
   };
 
   const yieldItem = findItem('현금배당수익률(%)');
@@ -267,7 +274,7 @@ export function extractDividendData(
   const netIncomeItem = findItem('(연결)당기순이익(백만원)');
 
   const history: DividendSnapshot[] = periods.map((p) => ({
-    periodLabel: labels[p],
+    periodLabel: periodWithMonth[p],
     dividendYield: parseFloat3(yieldItem?.[p]),
     dividendPerShare: parseFloat3(dpsItem?.[p]),
     payoutRatio: parseFloat3(payoutItem?.[p]),
@@ -305,6 +312,38 @@ export function calculateBPS(
 ): number | null {
   if (!shares || !totalEquity || shares === 0) return null;
   return Math.round(totalEquity / shares);
+}
+
+/**
+ * 시가총액 기반 가치평가 비율 계산 (PER/PBR/PSR)
+ *
+ * @param marketCap 시가총액 (원)
+ * @param netIncome 당기순이익 (원, 연환산)
+ * @param totalEquity 자본총계 (원, BS 시점값)
+ * @param revenue 매출액 (원, 연환산)
+ *
+ * @returns { per, pbr, psr } 분모가 0/음수면 null
+ */
+export function calculateValuationRatios(
+  marketCap: number | null,
+  netIncome: number | null,
+  totalEquity: number | null,
+  revenue: number | null,
+): { per: number | null; pbr: number | null; psr: number | null } {
+  const safeRatio = (
+    numerator: number | null,
+    denominator: number | null,
+  ): number | null => {
+    if (!numerator || !denominator || denominator <= 0) return null;
+    const result = numerator / denominator;
+    return Number.isFinite(result) ? Number(result.toFixed(2)) : null;
+  };
+
+  return {
+    per: safeRatio(marketCap, netIncome),
+    pbr: safeRatio(marketCap, totalEquity),
+    psr: safeRatio(marketCap, revenue),
+  };
 }
 
 /** 하위 호환을 위한 wrapper (기존 코드 사용처용) */

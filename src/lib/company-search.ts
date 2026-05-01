@@ -80,7 +80,8 @@ export function findCompanyByCode(corpCode: string): SearchResult | undefined {
     corpName: company.corpName,
     stockCode: company.stockCode,
     listedMarket: company.listedMarket,
-  };
+    marketCap: company.marketCap ?? null,
+  } as SearchResult & { marketCap: number | null };
 }
 
 /**
@@ -97,7 +98,8 @@ export function findCompanyByStockCode(
     corpName: company.corpName,
     stockCode: company.stockCode,
     listedMarket: company.listedMarket,
-  };
+    marketCap: company.marketCap ?? null,
+  } as SearchResult & { marketCap: number | null };
 }
 
 /**

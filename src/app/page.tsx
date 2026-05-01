@@ -1,6 +1,11 @@
 import { SearchBar } from '@/components/search/SearchBar';
 import { PopularCompanies } from '@/components/search/PopularCompanies';
 
+// Cloudflare Pages 호환: Edge Runtime + 동적 렌더링
+// (PopularCompanies가 D1을 조회하므로 런타임에 렌더링 필요)
+export const runtime = 'edge';
+export const dynamic = 'force-dynamic';
+
 export default function Home() {
   return (
     <div className='flex flex-1 flex-col items-center justify-center px-4 py-16'>

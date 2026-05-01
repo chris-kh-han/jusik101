@@ -1,0 +1,82 @@
+name: Sync Market Data (Daily)
+
+# 매일 한국시간 18:00 (=09:00 UTC) 실행
+# 한국 주식시장 마감 후 시가총액 갱신
+on:
+  schedule:
+    - cron: '0 9 * * 1-5'  # 평일만 (월~금)
+  workflow_dispatch:
+
+jobs:
+  sync:
+    name: Fetch KRX data and upload to D1
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install finance-datareader pandas
+
+      - name: Fetch KRX market data
+        run: |
+          python scripts/fetch_market_data.py > /tmp/market.json
+          echo "수집된 항목: $(python -c 'import json; print(len(json.load(open("/tmp/market.json"))))')"
+          echo "샘플 (처음 3개):"
+          python -c 'import json; d=json.load(open("/tmp/market.json")); [print(item) for item in d[:3]]'
+
+      - name: Warm up Cloudflare Worker
+        env:
+          BASE_URL: https://jusik101.pages.dev
+        run: |
+          curl -sS -o /dev/null --max-time 30 --ipv4 \
+            -H "User-Agent: jusik101-cron/1.0" \
+            "$BASE_URL/api/search?q=test" || true
+
+      - name: Upload to /api/sync/market
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          SYNC_URL: https://jusik101.pages.dev/api/sync/market
+        run: |
+          set -euo pipefail
+
+          RESPONSE=$(curl -sS -X POST "$SYNC_URL" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Content-Type: application/json" \
+            -H "User-Agent: jusik101-cron/1.0" \
+            --ipv4 \
+            --max-time 90 \
+            --retry 2 --retry-delay 5 --retry-all-errors \
+            --data @/tmp/market.json \
+            -w "\n__HTTP_CODE__:%{http_code}\n__TIME__:%{time_total}\n")
+
+          HTTP_CODE=$(echo "$RESPONSE" | grep -oE '__HTTP_CODE__:[0-9]+' | tail -1 | cut -d: -f2)
+          TIME_TOTAL=$(echo "$RESPONSE" | grep -oE '__TIME__:[0-9.]+' | tail -1 | cut -d: -f2)
+          BODY=$(echo "$RESPONSE" | sed '/^__HTTP_CODE__:/d; /^__TIME__:/d')
+
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Total Time:  ${TIME_TOTAL}s"
+          echo "Response:"
+          echo "$BODY"
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Market sync failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+
+          if echo "$BODY" | grep -q '"success":true'; then
+            UPDATED=$(echo "$BODY" | grep -oE '"updated":[0-9]+' | cut -d: -f2)
+            echo "::notice::Successfully updated $UPDATED market records in ${TIME_TOTAL}s"
+          else
+            echo "::error::Sync response did not indicate success"
+            exit 1
+          fi

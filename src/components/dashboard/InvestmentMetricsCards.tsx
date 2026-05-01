@@ -25,11 +25,21 @@ export interface InvestmentMetrics {
   readonly payoutRatio?: number | null; // 배당성향 (%)
 }
 
-interface Props {
-  readonly metrics: InvestmentMetrics;
+/** 배당 다년치 (최신 → 과거 순) */
+export interface DividendHistoryRow {
+  readonly periodLabel: string; // '당기' | '전기' | '전전기'
+  readonly dividendYield?: number | null;
+  readonly dividendPerShare?: number | null;
+  readonly payoutRatio?: number | null;
+  readonly eps?: number | null;
 }
 
-export function InvestmentMetricsCards({ metrics }: Props) {
+interface Props {
+  readonly metrics: InvestmentMetrics;
+  readonly dividendHistory?: readonly DividendHistoryRow[];
+}
+
+export function InvestmentMetricsCards({ metrics, dividendHistory }: Props) {
   const hasValuation = anyDefined(metrics.per, metrics.pbr, metrics.psr);
   const hasIncome = anyDefined(metrics.eps, metrics.bps, metrics.roe);
   const hasDividend = anyDefined(
@@ -39,6 +49,8 @@ export function InvestmentMetricsCards({ metrics }: Props) {
   );
 
   if (!hasValuation && !hasIncome && !hasDividend) return null;
+
+  const showHistory = dividendHistory && dividendHistory.length >= 2;
 
   return (
     <section>
@@ -102,7 +114,107 @@ export function InvestmentMetricsCards({ metrics }: Props) {
           </Card>
         )}
       </div>
+
+      {showHistory && <DividendHistoryTable history={dividendHistory} />}
     </section>
+  );
+}
+
+interface HistoryProps {
+  readonly history: readonly DividendHistoryRow[];
+}
+
+function DividendHistoryTable({ history }: HistoryProps) {
+  // 데이터 있는 행만
+  const rows = history.filter(
+    (r) =>
+      r.dividendYield !== null ||
+      r.dividendPerShare !== null ||
+      r.payoutRatio !== null ||
+      r.eps !== null,
+  );
+  if (rows.length === 0) return null;
+
+  return (
+    <div className='border-border bg-card mt-3 rounded-xl border p-4'>
+      <h3 className='text-sm font-semibold'>배당 추이</h3>
+      <p className='text-muted-foreground mt-0.5 mb-3 text-xs'>
+        최근 3년 (당기 → 전전기)
+      </p>
+      <div className='overflow-x-auto'>
+        <table className='w-full text-sm'>
+          <thead>
+            <tr className='border-border text-muted-foreground border-b'>
+              <th className='py-2 text-left text-xs font-medium'>항목</th>
+              {rows.map((r) => (
+                <th
+                  key={r.periodLabel}
+                  className='py-2 text-right text-xs font-medium'
+                >
+                  {r.periodLabel}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className='[&>tr]:border-border [&>tr:not(:last-child)]:border-b'>
+            <HistoryRow
+              label='주당 배당금'
+              rows={rows}
+              fmt={formatWon}
+              field='dividendPerShare'
+            />
+            <HistoryRow
+              label='배당수익률'
+              rows={rows}
+              fmt={formatPercent}
+              field='dividendYield'
+            />
+            <HistoryRow
+              label='배당성향'
+              rows={rows}
+              fmt={formatPercent}
+              field='payoutRatio'
+            />
+            <HistoryRow
+              label='주당 순이익(EPS)'
+              rows={rows}
+              fmt={formatWon}
+              field='eps'
+            />
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function HistoryRow({
+  label,
+  rows,
+  fmt,
+  field,
+}: {
+  readonly label: string;
+  readonly rows: readonly DividendHistoryRow[];
+  readonly fmt: (v: number | null | undefined) => string;
+  readonly field: keyof Omit<DividendHistoryRow, 'periodLabel'>;
+}) {
+  // 모든 값이 null이면 row 자체 숨김
+  if (rows.every((r) => r[field] === null || r[field] === undefined))
+    return null;
+
+  return (
+    <tr>
+      <td className='text-muted-foreground py-2 text-xs'>{label}</td>
+      {rows.map((r) => (
+        <td
+          key={r.periodLabel}
+          className='py-2 text-right text-sm font-medium tabular-nums'
+        >
+          {fmt(r[field])}
+        </td>
+      ))}
+    </tr>
   );
 }
 

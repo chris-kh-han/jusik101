@@ -143,13 +143,24 @@ function formatDate(iso: string): string {
 /**
  * 통화 locale에 따라 표시 분기.
  *   - KRW: 363원 (정수, ko-KR comma)
- *   - USD: $0.26 (소수점 2자리, < $100), $123 (정수)
+ *   - USD: $123 (>= $100), $0.26 ($1~$100), $0.004 (split-adjusted 등 소액)
+ *
+ * 자릿수 정책 (USD):
+ *   abs >= 100      → 0자리 ($123)
+ *   abs >= 0.01     → 2자리 ($0.26)
+ *   abs >= 0.0001   → 4자리 ($0.0040, split-adjusted NVDA pre-split 등)
+ *   else            → 6자리 (극소액, 정밀도 보존)
  */
 function formatMoney(value: number, currency: CurrencyLocale): string {
   if (currency === 'USD') {
     const sign = value < 0 ? '-' : '';
     const abs = Math.abs(value);
-    return `${sign}$${abs.toFixed(abs < 100 ? 2 : 0)}`;
+    let digits: number;
+    if (abs >= 100) digits = 0;
+    else if (abs >= 0.01) digits = 2;
+    else if (abs >= 0.0001) digits = 4;
+    else digits = 6;
+    return `${sign}$${abs.toFixed(digits)}`;
   }
   return `${Math.round(value).toLocaleString('ko-KR')}원`;
 }

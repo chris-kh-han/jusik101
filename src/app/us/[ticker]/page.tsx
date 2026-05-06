@@ -9,20 +9,35 @@
 
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { D1Error, getD1 } from '@/lib/d1-client';
-import { HealthScoreCard } from '@/components/dashboard/HealthScoreCard';
 import { CompanyHeaderSection } from '@/components/dashboard/CompanyHeaderSection';
 import { InvestmentMetricsCards } from '@/components/dashboard/InvestmentMetricsCards';
 import { StabilityMetricsCards } from '@/components/dashboard/StabilityMetricsCards';
-import { DividendHistorySection } from '@/components/dashboard/DividendHistorySection';
-import { QuarterlyBarLineChart } from '@/components/charts/QuarterlyBarLineChart';
-import { QuarterlyStabilityChart } from '@/components/charts/QuarterlyStabilityChart';
 import { loadUsCompanyPageData } from '@/lib/us-data-loader';
 import { buildUsQuarterlySeries, calculateTtm } from '@/lib/us-quarterly';
 import { buildUsQuarterlyDividends } from '@/lib/us-quarterly-dividend';
 import type { D1Database } from '@cloudflare/workers-types';
+
+// 차트 컴포넌트는 worker bundle 크기 줄이기 위해 dynamic import (Recharts ~75KB gzip).
+// 자세한 내용은 docs/worker-size-options.md 참조.
+const DividendHistorySection = dynamic(() =>
+  import('@/components/dashboard/DividendHistorySection').then((m) => ({
+    default: m.DividendHistorySection,
+  })),
+);
+const QuarterlyBarLineChart = dynamic(() =>
+  import('@/components/charts/QuarterlyBarLineChart').then((m) => ({
+    default: m.QuarterlyBarLineChart,
+  })),
+);
+const QuarterlyStabilityChart = dynamic(() =>
+  import('@/components/charts/QuarterlyStabilityChart').then((m) => ({
+    default: m.QuarterlyStabilityChart,
+  })),
+);
 
 // Cloudflare Pages 호환
 export const runtime = 'edge';

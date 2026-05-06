@@ -21,6 +21,10 @@ import {
 } from './dart-api';
 import { cacheOrFetch } from './financial-cache';
 import type { DartFinancialItem, ReportCode, FsDiv } from '@/types/financial';
+import {
+  buildQuarterlyDpsForYear,
+  type YearlyQuarterlyDps,
+} from './quarterly-dividend';
 
 const REPORT_CODES: readonly ReportCode[] = [
   '11013', // 1분기
@@ -134,6 +138,76 @@ export async function loadDividend(
   }
 }
 
+/**
+ * 분기 배당 시계열 로드 — N년치 × 4보고서 = N×4회 호출 (캐시 hit 시 D1만).
+ *
+ * 누적 dps를 분기별 단일값으로 변환해 Map<year, YearlyQuarterlyDps>로 반환.
+ * 배당 데이터 없는 년도는 Map에서 제외.
+ */
+export async function loadQuarterlyDividends(
+  db: D1Database | null,
+  corpCode: string,
+  endYear: number,
+  yearsBack: number = 5,
+): Promise<ReadonlyMap<number, YearlyQuarterlyDps>> {
+  // 진행 중인 사업연도(endYear+1)도 포함 — Q1/H1만 있을 수 있음
+  const years: number[] = [];
+  for (let i = 0; i <= yearsBack; i++) years.push(endYear + 1 - i);
+
+  // year × 4 reprt = N개 호출
+  const REPORTS: ReadonlyArray<{
+    code: ReportCode;
+    key: 'q1' | 'h1' | 'q3' | 'fy';
+  }> = [
+    { code: '11013', key: 'q1' },
+    { code: '11012', key: 'h1' },
+    { code: '11014', key: 'q3' },
+    { code: '11011', key: 'fy' },
+  ];
+
+  const tasks = years.flatMap((year) =>
+    REPORTS.map((r) => ({
+      year,
+      reportKey: r.key,
+      reportCode: r.code,
+    })),
+  );
+
+  const settled = await Promise.allSettled(
+    tasks.map((t) => loadDividend(db, corpCode, t.year, t.reportCode)),
+  );
+
+  // 보고서 응답을 year별로 묶기
+  const buckets = new Map<
+    number,
+    {
+      q1?: readonly DartDividendItem[];
+      h1?: readonly DartDividendItem[];
+      q3?: readonly DartDividendItem[];
+      fy?: readonly DartDividendItem[];
+    }
+  >();
+
+  settled.forEach((result, i) => {
+    if (result.status !== 'fulfilled' || result.value.length === 0) return;
+    const { year, reportKey } = tasks[i]!;
+    const slot = buckets.get(year) ?? {};
+    slot[reportKey] = result.value;
+    buckets.set(year, slot);
+  });
+
+  // 분기별 dps 변환
+  const result = new Map<number, YearlyQuarterlyDps>();
+  for (const [year, reports] of buckets) {
+    const dps = buildQuarterlyDpsForYear(reports);
+    if (dps.q1 + dps.q2 + dps.q3 + dps.q4 > 0) {
+      result.set(year, dps);
+    }
+  }
+
+  return result;
+}
+
 /** 기업 개황 fetch (CEO, 홈페이지 등 raw 데이터) */
 export async function loadCompanyInfo(
   db: D1Database | null,
@@ -163,7 +237,9 @@ export async function loadCompanyInfo(
  * 회사 페이지에 필요한 모든 데이터 한 번에 로드
  *
  * 캐시 hit 시 0회 외부 호출.
- * 캐시 miss 시 12 (분기) + 4 (재무비율) + 1 (배당) + 1 (개황) = 18회 병렬 호출.
+ * 캐시 miss 시:
+ *   - 12 (재무 분기) + 4 (재무비율) + 1 (배당 연간) + 24 (배당 분기 6년×4) + 1 (개황)
+ *   - = 42회 병렬 호출 (DART 일 한도 10,000회 충분)
  */
 export async function loadCompanyPageData(
   db: D1Database | null,
@@ -171,14 +247,22 @@ export async function loadCompanyPageData(
   endYear: number,
   fsDiv: FsDiv = 'CFS',
 ) {
-  const [quarterlyReports, indices, dividend, companyInfo] = await Promise.all([
-    loadQuarterlyReports(db, corpCode, endYear, fsDiv),
-    loadFinancialIndices(db, corpCode, endYear, '11011'),
-    loadDividend(db, corpCode, endYear, '11011'),
-    loadCompanyInfo(db, corpCode),
-  ]);
+  const [quarterlyReports, indices, dividend, quarterlyDividends, companyInfo] =
+    await Promise.all([
+      loadQuarterlyReports(db, corpCode, endYear, fsDiv),
+      loadFinancialIndices(db, corpCode, endYear, '11011'),
+      loadDividend(db, corpCode, endYear, '11011'),
+      loadQuarterlyDividends(db, corpCode, endYear, 5),
+      loadCompanyInfo(db, corpCode),
+    ]);
 
-  return { quarterlyReports, indices, dividend, companyInfo };
+  return {
+    quarterlyReports,
+    indices,
+    dividend,
+    quarterlyDividends,
+    companyInfo,
+  };
 }
 
 /** 재무비율 raw → InvestmentMetrics + StabilityMetrics 매핑 */

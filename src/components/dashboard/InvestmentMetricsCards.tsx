@@ -101,14 +101,19 @@ export function InvestmentMetricsCards({ metrics, dividendHistory }: Props) {
         )}
 
         {hasDividend && (
-          <Card title='배당'>
+          <Card title='배당' subtitle='연간 합계 (사업보고서 기준)'>
             <Row
               label='배당수익률'
               value={formatPercent(metrics.dividendYield)}
             />
             <Row
               label='주당 배당금'
-              value={formatWon(metrics.dividendPerShare)}
+              value={
+                metrics.dividendPerShare !== null &&
+                metrics.dividendPerShare !== undefined
+                  ? `연 ${formatWon(metrics.dividendPerShare)}`
+                  : '-'
+              }
             />
             <Row label='배당성향' value={formatPercent(metrics.payoutRatio)} />
           </Card>
@@ -137,9 +142,9 @@ function DividendHistoryTable({ history }: HistoryProps) {
 
   return (
     <div className='border-border bg-card mt-3 rounded-xl border p-4'>
-      <h3 className='text-sm font-semibold'>배당 추이</h3>
+      <h3 className='text-sm font-semibold'>연간 배당 추이</h3>
       <p className='text-muted-foreground mt-0.5 mb-3 text-xs'>
-        최근 3년 (당기 → 전전기)
+        최근 3개 사업연도 결산 기준 — 연간 합계
       </p>
       <div className='overflow-x-auto'>
         <table className='w-full text-sm'>
@@ -220,13 +225,19 @@ function HistoryRow({
 
 interface CardProps {
   readonly title: string;
+  readonly subtitle?: string;
   readonly children: ReactNode;
 }
 
-function Card({ title, children }: CardProps) {
+function Card({ title, subtitle, children }: CardProps) {
   return (
     <div className='border-border bg-card rounded-xl border p-4'>
-      <h3 className='text-sm font-semibold'>{title}</h3>
+      <div className='flex items-baseline justify-between'>
+        <h3 className='text-sm font-semibold'>{title}</h3>
+        {subtitle && (
+          <span className='text-muted-foreground text-xs'>{subtitle}</span>
+        )}
+      </div>
       <div className='mt-3 space-y-2.5'>{children}</div>
     </div>
   );

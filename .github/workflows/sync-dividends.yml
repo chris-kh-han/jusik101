@@ -1,0 +1,113 @@
+name: Sync Dividends (Weekly)
+
+# 매주 월요일 04:00 UTC (한국시간 13:00) — sync-companies 1시간 후
+# DART /document.xml 파싱으로 정확한 배당락일/지급일/주당배당금 수집
+# workflow_dispatch로 수동 실행 가능 (TOP_N, YEARS 파라미터 조정 가능)
+on:
+  schedule:
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+    inputs:
+      top_n:
+        description: '수집할 시총 상위 종목 수'
+        required: false
+        default: '1000'
+      years:
+        description: '수집 기간 (년)'
+        required: false
+        default: '5'
+
+jobs:
+  sync:
+    name: Fetch DART dividend disclosures and POST to /api/sync/dividends
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Fetch dividend disclosures
+        env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+          TOP_N: ${{ github.event.inputs.top_n || '1000' }}
+          YEARS: ${{ github.event.inputs.years || '5' }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/sync
+          python3 scripts/fetch_dividend_history.py > /tmp/sync/dividends.json
+          ITEMS=$(python3 -c "import json; print(len(json.load(open('/tmp/sync/dividends.json'))))")
+          echo "::notice::Collected $ITEMS dividend events"
+          echo "items=$ITEMS" >> "$GITHUB_OUTPUT"
+
+      - name: Warm up Worker
+        env:
+          BASE_URL: https://jusik101.pages.dev
+        run: |
+          curl -sS -o /dev/null --max-time 30 --ipv4 \
+            -H "User-Agent: jusik101-cron/1.0" \
+            "$BASE_URL/api/search?q=test" || true
+
+      - name: POST /api/sync/dividends (batched)
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          SYNC_URL: https://jusik101.pages.dev/api/sync/dividends
+        run: |
+          set -euo pipefail
+
+          # 한 번에 보내면 50K 한도 초과 위험 → 5,000개씩 chunk
+          python3 <<'EOF'
+          import json
+          import os
+          import subprocess
+          import sys
+
+          with open('/tmp/sync/dividends.json') as f:
+              items = json.load(f)
+
+          if not items:
+              print('[sync] no items, skipping POST')
+              sys.exit(0)
+
+          BATCH = 5000
+          url = os.environ['SYNC_URL']
+          secret = os.environ['CRON_SECRET']
+
+          for i in range(0, len(items), BATCH):
+              chunk = items[i : i + BATCH]
+              payload_path = f'/tmp/sync/chunk_{i}.json'
+              with open(payload_path, 'w') as f:
+                  json.dump(chunk, f, ensure_ascii=False)
+
+              cmd = [
+                  'curl', '-sS', '-X', 'POST', url,
+                  '-H', f'Authorization: Bearer {secret}',
+                  '-H', 'Content-Type: application/json',
+                  '-H', 'User-Agent: jusik101-cron/1.0',
+                  '--ipv4',
+                  '--max-time', '180',
+                  '--retry', '2', '--retry-delay', '5', '--retry-all-errors',
+                  '--data-binary', f'@{payload_path}',
+                  '-w', '\n__HTTP_CODE__:%{http_code}\n',
+              ]
+              result = subprocess.run(cmd, capture_output=True, text=True)
+              http_code = '?'
+              for line in result.stdout.splitlines():
+                  if line.startswith('__HTTP_CODE__:'):
+                      http_code = line.split(':', 1)[1]
+              print(f'[sync] chunk {i // BATCH + 1}: HTTP {http_code}, items={len(chunk)}')
+              if http_code != '200':
+                  print('[sync] response body:', result.stdout, file=sys.stderr)
+                  sys.exit(1)
+          EOF
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Sync Dividends Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "Top N: ${TOP_N:-1000}, Years: ${YEARS:-5}" >> "$GITHUB_STEP_SUMMARY"

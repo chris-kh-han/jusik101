@@ -410,10 +410,13 @@ def process_company(
         if gross_profit is None and rev is not None and cogs is not None:
             gross_profit = rev - cogs
 
-        # Operating expenses (excl. COGS) = TotalOpEx - COGS
+        # Operating expenses (excl. COGS) — TradingView 표시: GrossProfit - OperatingIncome
+        # (R&D + SG&A 합계, 음수로 표시 = 지출).
+        # 기존 (TotalOpEx - COGS) 로직은 회사마다 OperatingExpenses 태그 정의가 달라
+        # Apple 같이 이미 excl. COGS인 경우 잘못된 값 — 부호 통일 위해 IS identity 사용.
         opex_excl_cogs = None
-        if total_opex is not None and cogs is not None:
-            opex_excl_cogs = total_opex - cogs
+        if op_income is not None and gross_profit is not None:
+            opex_excl_cogs = op_income - gross_profit  # 지출이므로 음수
 
         # After tax other = NetIncome - (PretaxIncome - Taxes - MinorityInterest)
         # taxes는 expense라 (+) 부호로 차감 의도 — 정확한 부호는 회사마다 — 0이 정상

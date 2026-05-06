@@ -34,12 +34,20 @@ export interface DividendHistoryRow {
   readonly eps?: number | null;
 }
 
+/** 통화 표시 모드 — 디폴트 KRW, 미국 페이지에선 USD */
+export type CurrencyLocale = 'KRW' | 'USD';
+
 interface Props {
   readonly metrics: InvestmentMetrics;
   readonly dividendHistory?: readonly DividendHistoryRow[];
+  readonly currency?: CurrencyLocale;
 }
 
-export function InvestmentMetricsCards({ metrics, dividendHistory }: Props) {
+export function InvestmentMetricsCards({
+  metrics,
+  dividendHistory,
+  currency = 'KRW',
+}: Props) {
   const hasValuation = anyDefined(metrics.per, metrics.pbr, metrics.psr);
   const hasIncome = anyDefined(metrics.eps, metrics.bps, metrics.roe);
   const hasDividend = anyDefined(
@@ -47,6 +55,8 @@ export function InvestmentMetricsCards({ metrics, dividendHistory }: Props) {
     metrics.dividendPerShare,
     metrics.payoutRatio,
   );
+
+  const fmtMoney = (v: number | null | undefined) => formatMoney(v, currency);
 
   if (!hasValuation && !hasIncome && !hasDividend) return null;
 
@@ -85,12 +95,12 @@ export function InvestmentMetricsCards({ metrics, dividendHistory }: Props) {
             <Row
               label='EPS'
               tooltip='주당순이익'
-              value={formatWon(metrics.eps)}
+              value={fmtMoney(metrics.eps)}
             />
             <Row
               label='BPS'
               tooltip='주당순자산'
-              value={formatWon(metrics.bps)}
+              value={fmtMoney(metrics.bps)}
             />
             <Row
               label='ROE'
@@ -111,7 +121,7 @@ export function InvestmentMetricsCards({ metrics, dividendHistory }: Props) {
               value={
                 metrics.dividendPerShare !== null &&
                 metrics.dividendPerShare !== undefined
-                  ? `연 ${formatWon(metrics.dividendPerShare)}`
+                  ? `연 ${fmtMoney(metrics.dividendPerShare)}`
                   : '-'
               }
             />
@@ -120,16 +130,20 @@ export function InvestmentMetricsCards({ metrics, dividendHistory }: Props) {
         )}
       </div>
 
-      {showHistory && <DividendHistoryTable history={dividendHistory} />}
+      {showHistory && (
+        <DividendHistoryTable history={dividendHistory} currency={currency} />
+      )}
     </section>
   );
 }
 
 interface HistoryProps {
   readonly history: readonly DividendHistoryRow[];
+  readonly currency: CurrencyLocale;
 }
 
-function DividendHistoryTable({ history }: HistoryProps) {
+function DividendHistoryTable({ history, currency }: HistoryProps) {
+  const fmtMoney = (v: number | null | undefined) => formatMoney(v, currency);
   // 데이터 있는 행만
   const rows = history.filter(
     (r) =>
@@ -165,7 +179,7 @@ function DividendHistoryTable({ history }: HistoryProps) {
             <HistoryRow
               label='주당 배당금'
               rows={rows}
-              fmt={formatWon}
+              fmt={fmtMoney}
               field='dividendPerShare'
             />
             <HistoryRow
@@ -183,7 +197,7 @@ function DividendHistoryTable({ history }: HistoryProps) {
             <HistoryRow
               label='주당 순이익(EPS)'
               rows={rows}
-              fmt={formatWon}
+              fmt={fmtMoney}
               field='eps'
             />
           </tbody>
@@ -271,8 +285,21 @@ function formatX(v: number | null | undefined): string {
   return `${v.toFixed(1)}배`;
 }
 
-function formatWon(v: number | null | undefined): string {
+/**
+ * 통화 locale에 따라 표시 형식 분기.
+ *   - KRW: 1,234원 (정수 반올림, ko-KR comma)
+ *   - USD: $0.26 / $1.92 (소수점 2자리)
+ */
+function formatMoney(
+  v: number | null | undefined,
+  currency: CurrencyLocale,
+): string {
   if (v === null || v === undefined) return '-';
+  if (currency === 'USD') {
+    const sign = v < 0 ? '-' : '';
+    const abs = Math.abs(v);
+    return `${sign}$${abs.toFixed(abs < 100 ? 2 : 0)}`;
+  }
   return `${Math.round(v).toLocaleString('ko-KR')}원`;
 }
 

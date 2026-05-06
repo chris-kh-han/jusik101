@@ -16,6 +16,9 @@
 
 import { ExternalLink } from 'lucide-react';
 import { formatKoreanCurrency } from '@/lib/financial-utils';
+import { formatUsdCompact } from '@/lib/us-format';
+
+export type CurrencyLocale = 'KRW' | 'USD';
 
 export interface CompanyHeaderInfo {
   readonly corpName: string;
@@ -25,14 +28,17 @@ export interface CompanyHeaderInfo {
   readonly homepage?: string | null;
   readonly establishedDate?: string | null; // YYYYMMDD
   readonly settlementMonth?: string | null; // 12 (월)
-  readonly marketCap?: number | null; // 원 단위
+  readonly marketCap?: number | null; // KRW 또는 USD (currency 따라)
   readonly bizNo?: string | null;
+  readonly sector?: string | null;
+  readonly industry?: string | null;
 }
 
 interface Props {
   readonly company: CompanyHeaderInfo;
   readonly summary?: string;
   readonly fiscalYearLabel?: string; // 예: "2025년 사업보고서 기준"
+  readonly currency?: CurrencyLocale;
 }
 
 interface MetaItem {
@@ -45,14 +51,26 @@ export function CompanyHeaderSection({
   company,
   summary,
   fiscalYearLabel,
+  currency = 'KRW',
 }: Props) {
   const items: MetaItem[] = [];
 
   if (company.marketCap && company.marketCap > 0) {
     items.push({
       label: '시가총액',
-      value: formatKoreanCurrency(company.marketCap),
+      value:
+        currency === 'USD'
+          ? formatUsdCompact(company.marketCap)
+          : formatKoreanCurrency(company.marketCap),
     });
+  }
+
+  if (company.sector) {
+    items.push({ label: '섹터', value: company.sector });
+  }
+
+  if (company.industry) {
+    items.push({ label: '산업', value: company.industry });
   }
 
   if (company.ceoName) {

@@ -86,7 +86,7 @@ jobs:
       - name: POST batched
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          SYNC_URL: https://jusik101.pages.dev/api/sync/us-financial-facts
+          SYNC_URL: https://jusik101.pages.dev/api/sync/us-financials
         run: |
           set -euo pipefail
           python3 <<'EOF'

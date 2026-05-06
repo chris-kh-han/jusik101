@@ -18,11 +18,11 @@ import { useMemo, useState } from 'react';
 import type {
   FinancialFactRow,
   FactsTable,
-} from '@/lib/us-financial-facts-loader';
+} from '@/lib/us-financial-facts-utils';
 import {
   buildFactsTable,
   calculateTtmColumn,
-} from '@/lib/us-financial-facts-loader';
+} from '@/lib/us-financial-facts-utils';
 
 interface Props {
   readonly facts: readonly FinancialFactRow[];

@@ -1,0 +1,79 @@
+name: Sync US Companies (Weekly)
+
+# 매주 월요일 03:30 UTC (한국 12:30) — 한국 sync 30분 후
+# workflow_dispatch로 수동 실행 가능
+on:
+  schedule:
+    - cron: '30 3 * * 1'
+  workflow_dispatch:
+    inputs:
+      list_scope:
+        description: '대상 범위 (sp500 | all_listed)'
+        required: false
+        default: 'sp500'
+
+jobs:
+  sync:
+    name: Fetch SEC + FDR and POST to /api/sync/us-companies
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: scripts/requirements.txt
+
+      - name: Install Python deps
+        run: pip install -r scripts/requirements.txt
+
+      - name: Fetch US companies
+        env:
+          EDGAR_USER_AGENT: ${{ secrets.EDGAR_USER_AGENT }}
+          LIST_SCOPE: ${{ github.event.inputs.list_scope || 'sp500' }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/sync
+          python3 scripts/fetch_us_companies.py > /tmp/sync/us_companies.json
+          ITEMS=$(python3 -c "import json; print(len(json.load(open('/tmp/sync/us_companies.json'))))")
+          echo "::notice::Collected $ITEMS US companies"
+
+      - name: Warm up Worker
+        run: |
+          curl -sS -o /dev/null --max-time 30 --ipv4 \
+            -H "User-Agent: jusik101-cron/1.0" \
+            "https://jusik101.pages.dev/api/search?q=test" || true
+
+      - name: POST /api/sync/us-companies
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          SYNC_URL: https://jusik101.pages.dev/api/sync/us-companies
+        run: |
+          set -euo pipefail
+          RESPONSE=$(curl -sS -X POST "$SYNC_URL" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Content-Type: application/json" \
+            -H "User-Agent: jusik101-cron/1.0" \
+            --ipv4 \
+            --max-time 120 \
+            --retry 2 --retry-delay 5 --retry-all-errors \
+            --data-binary @/tmp/sync/us_companies.json \
+            -w "\n__HTTP_CODE__:%{http_code}\n")
+
+          HTTP_CODE=$(echo "$RESPONSE" | grep -oE '__HTTP_CODE__:[0-9]+' | tail -1 | cut -d: -f2)
+          BODY=$(echo "$RESPONSE" | sed '/^__HTTP_CODE__:/d')
+
+          echo "HTTP $HTTP_CODE"
+          echo "Response: $BODY"
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Sync failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+
+          INSERTED=$(echo "$BODY" | grep -oE '"inserted":[0-9]+' | cut -d: -f2)
+          echo "::notice::Inserted $INSERTED US companies into D1"

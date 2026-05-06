@@ -66,3 +66,7 @@ next-env.d.ts
 # Cloudflare Pages 로컬 dev 환경변수 (.env.local과 동일한 값)
 .dev.vars
 .dev.vars.*
+
+# Python
+__pycache__/
+*.pyc

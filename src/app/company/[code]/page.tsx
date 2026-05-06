@@ -14,6 +14,7 @@ import { DashboardCharts } from '@/components/dashboard/DashboardCharts';
 import { CompanyHeaderSection } from '@/components/dashboard/CompanyHeaderSection';
 import { InvestmentMetricsCards } from '@/components/dashboard/InvestmentMetricsCards';
 import { StabilityMetricsCards } from '@/components/dashboard/StabilityMetricsCards';
+import { DividendHistorySection } from '@/components/dashboard/DividendHistorySection';
 import { QuarterlyBarLineChart } from '@/components/charts/QuarterlyBarLineChart';
 import { QuarterlyStabilityChart } from '@/components/charts/QuarterlyStabilityChart';
 import { getLatestReportYear } from '@/lib/cache';
@@ -27,6 +28,8 @@ import {
   calculateValuationRatios,
 } from '@/lib/company-data-loader';
 import { buildQuarterlySeries } from '@/lib/quarterly-utils';
+import { summarizeQuarterlyDividends } from '@/lib/quarterly-dividend';
+import { loadDividendOverrides } from '@/lib/dividend-overrides';
 import type { D1Database } from '@cloudflare/workers-types';
 import { findCompaniesByStockCodesD1 } from '@/lib/company-search-d1';
 
@@ -142,6 +145,21 @@ export default async function CompanyPage({ params }: PageProps) {
     : null;
   const dividendData = pageData ? extractDividendData(pageData.dividend) : null;
 
+  // Phase 2: D1 dividend_disclosures에서 정확한 배당락일/지급일 override 조회
+  const dividendOverrides = await loadDividendOverrides(
+    db,
+    company.stockCode,
+    pageData?.companyInfo?.acc_mt
+      ? parseInt(pageData.companyInfo.acc_mt, 10)
+      : 12,
+  );
+  const quarterlyDividendSummary = pageData
+    ? summarizeQuarterlyDividends(
+        pageData.quarterlyDividends,
+        dividendOverrides,
+      )
+    : null;
+
   // 가장 최근 사업보고서 (가장 큰 연도) — find는 가장 오래된 거 반환할 수 있어 명시적으로 sort
   const annualReportForRatios = pageData?.quarterlyReports
     .filter((r) => r.reportCode === '11011')
@@ -253,7 +271,16 @@ export default async function CompanyPage({ params }: PageProps) {
           />
         )}
 
-        {/* 3. 안정성 지표 카드 */}
+        {/* 3. 분기별 배당 시계열 (토스 스타일) */}
+        {quarterlyDividendSummary &&
+          quarterlyDividendSummary.points.length > 0 && (
+            <DividendHistorySection
+              points={quarterlyDividendSummary.points}
+              fiscalMonth={quarterlyDividendSummary.fiscalMonth}
+            />
+          )}
+
+        {/* 4. 안정성 지표 카드 */}
         {indexMetrics && (
           <StabilityMetricsCards
             metrics={{

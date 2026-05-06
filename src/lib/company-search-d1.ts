@@ -46,64 +46,41 @@ export async function searchCompaniesD1(
   const db = await getD1();
   const lowerQuery = trimmed.toLowerCase();
 
-  // SQLite LIKE는 ASCII만 case-insensitive (한글은 대소문자 개념 없으므로 OK)
-  // 한·미 통합: companies + us_companies UNION.
-  //   - 한국: corp_code = DART corpCode (8자리)
-  //   - 미국: corp_code = ticker (대문자)로 통일 — 라우팅 시 nation으로 분기
-  // SQL 인젝션 방지를 위해 항상 prepared statement 사용
+  // 한·미 통합 검색.
+  // D1 SQLite의 compound SELECT terms 한도 때문에 UNION을 KR+US 2단계로 줄이고
+  // score는 CASE WHEN으로 계산 (정확/접두사/부분 일치 점수 차등).
+  //
+  //   ?1 = 정확 일치 검색어 (lowercase)
+  //   ?2 = '검색어%' (접두사 LIKE)
+  //   ?3 = '%검색어%' (부분 LIKE)
+  //   ?4 = limit
   const sql = `
-    SELECT corp_code, corp_name, stock_code, listed_market, market_cap, nation, MAX(score) as score
+    SELECT corp_code, corp_name, stock_code, listed_market, market_cap, nation,
+      CASE
+        WHEN corp_name_lower = ?1 OR stock_code_lower = ?1 THEN 100
+        WHEN corp_name_lower LIKE ?2 THEN 80
+        WHEN stock_code_lower LIKE ?2 THEN 75
+        WHEN corp_name_lower LIKE ?3 THEN 50
+        WHEN stock_code_lower LIKE ?3 THEN 45
+        ELSE 0
+      END AS score
     FROM (
-      -- ── 한국 (companies) ──────────────────────────────────────
       SELECT corp_code, corp_name, stock_code, listed_market, market_cap,
-             'KR' AS nation, 100 AS score
-      FROM companies WHERE corp_name = ?1 OR stock_code = ?1
-      UNION ALL
-      SELECT corp_code, corp_name, stock_code, listed_market, market_cap,
-             'KR' AS nation, 80 AS score
-      FROM companies WHERE corp_name LIKE ?2
-      UNION ALL
-      SELECT corp_code, corp_name, stock_code, listed_market, market_cap,
-             'KR' AS nation, 75 AS score
-      FROM companies WHERE stock_code LIKE ?2
-      UNION ALL
-      SELECT corp_code, corp_name, stock_code, listed_market, market_cap,
-             'KR' AS nation, 50 AS score
-      FROM companies WHERE corp_name LIKE ?3
-      UNION ALL
-      SELECT corp_code, corp_name, stock_code, listed_market, market_cap,
-             'KR' AS nation, 45 AS score
-      FROM companies WHERE stock_code LIKE ?3
-
-      -- ── 미국 (us_companies) ───────────────────────────────────
+             'KR' AS nation,
+             LOWER(corp_name) AS corp_name_lower,
+             LOWER(COALESCE(stock_code, '')) AS stock_code_lower
+      FROM companies
+      WHERE LOWER(corp_name) LIKE ?3 OR LOWER(COALESCE(stock_code, '')) LIKE ?3
       UNION ALL
       SELECT ticker AS corp_code, name AS corp_name, ticker AS stock_code,
              COALESCE(exchange, 'US') AS listed_market, market_cap,
-             'US' AS nation, 100 AS score
+             'US' AS nation,
+             LOWER(name) AS corp_name_lower,
+             LOWER(ticker) AS stock_code_lower
       FROM us_companies
-      WHERE LOWER(name) = ?1 OR LOWER(ticker) = ?1
-      UNION ALL
-      SELECT ticker AS corp_code, name AS corp_name, ticker AS stock_code,
-             COALESCE(exchange, 'US') AS listed_market, market_cap,
-             'US' AS nation, 80 AS score
-      FROM us_companies WHERE LOWER(name) LIKE ?2
-      UNION ALL
-      SELECT ticker AS corp_code, name AS corp_name, ticker AS stock_code,
-             COALESCE(exchange, 'US') AS listed_market, market_cap,
-             'US' AS nation, 75 AS score
-      FROM us_companies WHERE LOWER(ticker) LIKE ?2
-      UNION ALL
-      SELECT ticker AS corp_code, name AS corp_name, ticker AS stock_code,
-             COALESCE(exchange, 'US') AS listed_market, market_cap,
-             'US' AS nation, 50 AS score
-      FROM us_companies WHERE LOWER(name) LIKE ?3
-      UNION ALL
-      SELECT ticker AS corp_code, name AS corp_name, ticker AS stock_code,
-             COALESCE(exchange, 'US') AS listed_market, market_cap,
-             'US' AS nation, 45 AS score
-      FROM us_companies WHERE LOWER(ticker) LIKE ?3
+      WHERE LOWER(name) LIKE ?3 OR LOWER(ticker) LIKE ?3
     )
-    GROUP BY corp_code, nation
+    WHERE score > 0
     ORDER BY score DESC, market_cap DESC, corp_name ASC
     LIMIT ?4
   `;

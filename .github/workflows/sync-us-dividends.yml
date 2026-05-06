@@ -17,7 +17,7 @@ on:
 
 jobs:
   sync:
-    name: Fetch FDR Yahoo + EDGAR fallback and POST to /api/sync/us-dividends
+    name: Fetch yfinance dividends and POST to /api/sync/us-dividends
     runs-on: ubuntu-latest
     timeout-minutes: 60
 

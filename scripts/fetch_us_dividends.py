@@ -1,21 +1,25 @@
 """
-미국 상장사 배당 events 수집 — FDR(Yahoo) 1차 + EDGAR companyfacts fallback
+미국 상장사 배당 events 수집 — yfinance 직접 사용
 
 데이터 흐름:
-  1. companies.json (D1 us_companies dump) → ticker, CIK
-  2. for each ticker: FDR DataReader(ticker, since=...) → Dividends 컬럼
-     - index = ex-dividend date (Yahoo는 ex-date 기준 시계열 제공)
-     - val = 1주당 배당금 (USD)
-  3. FDR이 데이터 못 받는 종목 → EDGAR companyfacts fallback
-     - period_end를 ex-date로 (회계상 분기말 ≈ ex-date 근사)
-     - dps만 있고 정확한 ex-date 없는 케이스
-  4. JSON 출력 → /api/sync/us-dividends POST
+  1. companies.json (D1 us_companies dump) → ticker 리스트
+  2. for each ticker: yf.Ticker(ticker).dividends
+     - index = 정확한 ex-dividend date (Yahoo 공식)
+     - val = 1주당 배당금 (USD, split-adjusted)
+  3. JSON 출력 → /api/sync/us-dividends POST
+
+이전 버전(FDR + EDGAR fallback) 폐기 이유:
+  - FDR이 NVDA 같은 대형주에서 가끔 빈 결과 반환
+  - EDGAR fallback이 정확한 ex-date 없음 (분기말일로 대체 → 1-2달 오차)
+  - EDGAR는 같은 기간에 raw($0.04) / split-adjusted($0.004) / cumulative($0.16)
+    여러 entry 신고하는 경우 dedup 어려움
+  - yfinance 직접 호출이 가장 정확하고 일관된 데이터 제공
 
 환경변수:
-  - EDGAR_USER_AGENT (필수)
-  - YEARS (선택, 디폴트 5)
-  - LIMIT (선택, 디폴트 0)
-  - COMPANIES_FILE (선택)
+  - YEARS (선택, 디폴트 5) — 수집 기간 (years before now)
+  - LIMIT (선택, 디폴트 0) — top N 회사만 (디버깅)
+  - COMPANIES_FILE (선택) — companies.json 경로
+  - REQUEST_INTERVAL_SEC (선택, 디폴트 0.05) — Yahoo throttle 방지
 
 출력 형식:
 [
@@ -37,27 +41,21 @@ import json
 import os
 import sys
 import time
-from datetime import datetime, date
+from datetime import datetime, timezone
 from typing import Any
 
-import requests
+# yfinance는 import 자체가 무거우므로 lazy
+def _lazy_yf():
+    import yfinance as yf
 
-# FDR은 import 자체가 무거우므로 (pandas + numpy + lxml ...) 필요한 시점에 lazy import
-def _lazy_fdr():
-    import FinanceDataReader as fdr
-    return fdr
+    return yf
 
 
 # ── 환경 ────────────────────────────────────────────────────────────────────
-EDGAR_USER_AGENT = os.environ.get("EDGAR_USER_AGENT", "")
 YEARS = int(os.environ.get("YEARS", "5"))
 LIMIT = int(os.environ.get("LIMIT", "0"))
 COMPANIES_FILE = os.environ.get("COMPANIES_FILE", "")
-EDGAR_INTERVAL_SEC = float(os.environ.get("EDGAR_INTERVAL_SEC", "0.12"))
-
-if not EDGAR_USER_AGENT:
-    print("[fetch_us_dividends] EDGAR_USER_AGENT missing", file=sys.stderr)
-    sys.exit(1)
+REQUEST_INTERVAL_SEC = float(os.environ.get("REQUEST_INTERVAL_SEC", "0.05"))
 
 
 # ── 회사 리스트 ─────────────────────────────────────────────────────────────
@@ -72,42 +70,56 @@ def load_companies() -> list[dict[str, Any]]:
     return json.loads(raw)
 
 
-# ── FDR Yahoo 1차 ──────────────────────────────────────────────────────────
-def fetch_dividends_yahoo(
-    ticker: str, since: str
-) -> list[dict[str, Any]]:
+# ── yfinance dividend fetch ────────────────────────────────────────────────
+def fetch_dividends(ticker: str, since_year: int) -> list[dict[str, Any]]:
     """
-    FDR DataReader(ticker, since)의 Dividends 컬럼.
-    index = ex-dividend date, value = USD/share.
+    yfinance Ticker(ticker).dividends → 정확한 ex-date + amount.
+    yfinance가 빈 결과 반환하면 [] (재시도 1회).
+
+    yfinance dividends는 split-adjusted 값.
     """
-    fdr = _lazy_fdr()
-    try:
-        df = fdr.DataReader(ticker, since)
-    except Exception as e:
-        print(f"[fetch_us_dividends] {ticker} FDR error: {e}", file=sys.stderr)
-        return []
+    yf = _lazy_yf()
 
-    if df is None or df.empty:
-        return []
+    for attempt in range(2):
+        try:
+            t = yf.Ticker(ticker)
+            divs = t.dividends
+        except Exception as e:
+            if attempt == 0:
+                time.sleep(0.5)
+                continue
+            print(
+                f"[fetch_us_dividends] {ticker} yfinance error: {e}",
+                file=sys.stderr,
+            )
+            return []
 
-    # 컬럼명 normalize
-    cols = {c.lower(): c for c in df.columns}
-    div_col = cols.get("dividends") or cols.get("dividend")
-    if div_col is None:
+        if divs is None or divs.empty:
+            if attempt == 0:
+                time.sleep(0.5)
+                continue
+            return []
+
+        # 성공
+        break
+    else:
         return []
 
     out: list[dict[str, Any]] = []
-    div_series = df[div_col]
-    for idx, val in div_series.items():
+    for ts, val in divs.items():
+        try:
+            # ts: pandas Timestamp (timezone-aware)
+            ex_date = ts.strftime("%Y-%m-%d")
+            year = ts.year
+        except Exception:
+            continue
+        if year < since_year:
+            continue
         try:
             v = float(val)
         except (TypeError, ValueError):
             continue
         if v <= 0:
-            continue
-        try:
-            ex_date = idx.strftime("%Y-%m-%d")
-        except AttributeError:
             continue
         out.append(
             {
@@ -122,108 +134,31 @@ def fetch_dividends_yahoo(
     return out
 
 
-# ── EDGAR fallback ─────────────────────────────────────────────────────────
-def fetch_dividends_edgar(
-    cik: str, ticker: str, since_year: int
-) -> list[dict[str, Any]]:
-    """
-    SEC EDGAR companyfacts에서 CommonStockDividendsPerShareDeclared 분기값.
-    period_end를 ex-date로 (정확한 ex-date는 아니지만 fallback).
-    """
-    url = f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
-    headers = {"User-Agent": EDGAR_USER_AGENT, "Accept": "application/json"}
-    try:
-        resp = requests.get(url, headers=headers, timeout=30)
-        if resp.status_code == 404:
-            return []
-        resp.raise_for_status()
-        facts = resp.json()
-    except requests.RequestException as e:
-        print(
-            f"[fetch_us_dividends] {cik} EDGAR error: {e}", file=sys.stderr
-        )
-        return []
-
-    us_gaap = facts.get("facts", {}).get("us-gaap", {})
-    info = (
-        us_gaap.get("CommonStockDividendsPerShareDeclared")
-        or us_gaap.get("CommonStockDividendsPerShareCashPaid")
-    )
-    if not info:
-        return []
-
-    units = info.get("units", {})
-    entries = units.get("USD/shares") or units.get("USD") or []
-
-    out: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for e in entries:
-        s, en = e.get("start"), e.get("end")
-        if not s or not en:
-            continue
-        try:
-            sy, sm, sd = (int(x) for x in s.split("-"))
-            ey, em, ed = (int(x) for x in en.split("-"))
-        except ValueError:
-            continue
-        if ey < since_year:
-            continue
-        days = (date(ey, em, ed) - date(sy, sm, sd)).days
-        if not (80 <= days <= 100):
-            continue
-        try:
-            v = float(e.get("val", 0))
-        except (TypeError, ValueError):
-            continue
-        if v <= 0:
-            continue
-        if en in seen:
-            continue
-        seen.add(en)
-        out.append(
-            {
-                "ticker": ticker,
-                "ex_dividend_date": en,  # 정확한 ex-date 아님, 분기말일
-                "payment_date": None,
-                "dividend_per_share": round(v, 4),
-                "dividend_type": "CASH",
-                "source": "edgar",
-            }
-        )
-    return out
-
-
 # ── 메인 ───────────────────────────────────────────────────────────────────
 def main() -> int:
     companies = load_companies()
     if LIMIT > 0:
         companies = companies[:LIMIT]
 
-    since_year = datetime.now().year - YEARS
-    since = f"{since_year}-01-01"
+    since_year = datetime.now(timezone.utc).year - YEARS
     print(
-        f"[fetch_us_dividends] companies={len(companies)}, since={since}",
+        f"[fetch_us_dividends] companies={len(companies)}, since_year={since_year}",
         file=sys.stderr,
     )
 
     all_items: list[dict[str, Any]] = []
+    no_data_count = 0
     for i, company in enumerate(companies, 1):
         ticker = company["ticker"]
-        cik = company.get("cik", "")
-
-        # 1차 Yahoo
-        items = fetch_dividends_yahoo(ticker, since)
-
-        # Yahoo가 못 받으면 EDGAR fallback
-        if not items and cik:
-            items = fetch_dividends_edgar(cik, ticker, since_year)
-            time.sleep(EDGAR_INTERVAL_SEC)
-
+        items = fetch_dividends(ticker, since_year)
+        if not items:
+            no_data_count += 1
         all_items.extend(items)
-
+        time.sleep(REQUEST_INTERVAL_SEC)
         if i % 50 == 0 or i == len(companies):
             print(
-                f"[fetch_us_dividends] progress {i}/{len(companies)} — total {len(all_items)}",
+                f"[fetch_us_dividends] progress {i}/{len(companies)} "
+                f"— total {len(all_items)} events, no-data {no_data_count}",
                 file=sys.stderr,
             )
 
@@ -238,7 +173,9 @@ def main() -> int:
         unique.append(it)
 
     print(
-        f"[fetch_us_dividends] DONE — {len(unique)} unique events ({len(all_items) - len(unique)} dups dropped)",
+        f"[fetch_us_dividends] DONE — {len(unique)} unique events "
+        f"({len(all_items) - len(unique)} dups dropped, "
+        f"{no_data_count} companies with no data)",
         file=sys.stderr,
     )
     if not unique:

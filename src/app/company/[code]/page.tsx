@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { findCompanyByCode } from '@/lib/company-search';
@@ -10,13 +11,32 @@ import {
 import { D1Error, getD1 } from '@/lib/d1-client';
 import { HealthScoreCard } from '@/components/dashboard/HealthScoreCard';
 import { KeyMetricsBar } from '@/components/dashboard/KeyMetricsBar';
-import { DashboardCharts } from '@/components/dashboard/DashboardCharts';
 import { CompanyHeaderSection } from '@/components/dashboard/CompanyHeaderSection';
 import { InvestmentMetricsCards } from '@/components/dashboard/InvestmentMetricsCards';
 import { StabilityMetricsCards } from '@/components/dashboard/StabilityMetricsCards';
-import { DividendHistorySection } from '@/components/dashboard/DividendHistorySection';
-import { QuarterlyBarLineChart } from '@/components/charts/QuarterlyBarLineChart';
-import { QuarterlyStabilityChart } from '@/components/charts/QuarterlyStabilityChart';
+
+// 차트 컴포넌트는 worker bundle 크기 줄이기 위해 dynamic import (Recharts).
+// 자세한 내용: docs/worker-size-options.md
+const DashboardCharts = dynamic(() =>
+  import('@/components/dashboard/DashboardCharts').then((m) => ({
+    default: m.DashboardCharts,
+  })),
+);
+const DividendHistorySection = dynamic(() =>
+  import('@/components/dashboard/DividendHistorySection').then((m) => ({
+    default: m.DividendHistorySection,
+  })),
+);
+const QuarterlyBarLineChart = dynamic(() =>
+  import('@/components/charts/QuarterlyBarLineChart').then((m) => ({
+    default: m.QuarterlyBarLineChart,
+  })),
+);
+const QuarterlyStabilityChart = dynamic(() =>
+  import('@/components/charts/QuarterlyStabilityChart').then((m) => ({
+    default: m.QuarterlyStabilityChart,
+  })),
+);
 import { getLatestReportYear } from '@/lib/cache';
 import { normalizeFinancialData, groupByStatement } from '@/lib/data-transform';
 import { calculateRatios, getHealthScore } from '@/lib/financial-utils';

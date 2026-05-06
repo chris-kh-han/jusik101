@@ -1,50 +1,52 @@
 'use client';
 
 /**
- * QuarterlyBarLineChart
+ * QuarterlyBarLineChart (Visx 구현)
  *
- * 토스 인베스트의 "수익성", "성장성" 차트 스타일 — 막대 + 선 조합.
+ * 토스 스타일 — primary bar (+ optional secondary bar) + rate line (우측 Y축).
  *
  * 사용처:
- *   1. 수익성: barField='revenue', lineField='netIncome', secondaryLineField='netMargin'
- *   2. 성장성: barField='operatingProfit', lineField='operatingMargin'
+ *   1. 수익성: barField='revenue', secondaryBar='netIncome', rateLine='netMargin'
+ *   2. 성장성: barField='operatingProfit', rateLine='operatingMargin'
  */
 
-import {
-  ComposedChart,
-  Bar,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  CartesianGrid,
-  Legend,
-} from 'recharts';
+import { useMemo, useState } from 'react';
+import { AxisBottom, AxisLeft, AxisRight } from '@visx/axis';
+import { GridRows } from '@visx/grid';
+import { Group } from '@visx/group';
+import { ParentSize } from '@visx/responsive';
+import { scaleBand, scaleLinear } from '@visx/scale';
+import { Bar, LinePath } from '@visx/shape';
+import { curveMonotoneX } from '@visx/curve';
 import type { QuarterlyDataPoint } from '@/lib/quarterly-utils';
 import { formatKoreanCurrency } from '@/lib/financial-utils';
+
+type AmountField = 'revenue' | 'operatingProfit' | 'netIncome';
+type RateField = 'netMargin' | 'operatingMargin' | 'debtRatio';
+
+interface BarSpec {
+  readonly field: AmountField;
+  readonly label: string;
+  readonly color: string;
+}
+interface LineSpec {
+  readonly field: RateField;
+  readonly label: string;
+  readonly color: string;
+}
 
 interface ChartProps {
   readonly title: string;
   readonly subtitle?: string;
-  readonly description?: string; // 차트 위 한 줄 인사이트 (예: "직전 분기 대비 +14% 성장")
+  readonly description?: string;
   readonly quarters: readonly QuarterlyDataPoint[];
-  /** 막대로 표시할 필드 (금액) */
-  readonly primaryBar:
-    | { field: 'revenue'; label: string; color: string }
-    | { field: 'operatingProfit'; label: string; color: string }
-    | { field: 'netIncome'; label: string; color: string };
-  /** 보조 막대 (선택) — 막대 그룹으로 표시 */
-  readonly secondaryBar?:
-    | { field: 'revenue'; label: string; color: string }
-    | { field: 'operatingProfit'; label: string; color: string }
-    | { field: 'netIncome'; label: string; color: string };
-  /** 우측 Y축 라인 (% 비율) */
-  readonly rateLine?:
-    | { field: 'netMargin'; label: string; color: string }
-    | { field: 'operatingMargin'; label: string; color: string }
-    | { field: 'debtRatio'; label: string; color: string };
+  readonly primaryBar: BarSpec;
+  readonly secondaryBar?: BarSpec;
+  readonly rateLine?: LineSpec;
 }
+
+const margin = { top: 16, right: 56, bottom: 28, left: 56 };
+const HEIGHT = 280;
 
 export function QuarterlyBarLineChart({
   title,
@@ -69,16 +71,6 @@ export function QuarterlyBarLineChart({
     );
   }
 
-  // 차트 데이터 — null은 undefined로 (Recharts는 null도 빈 점으로 처리하지만 명시적으로)
-  const data = quarters.map((q) => ({
-    label: q.label,
-    [primaryBar.field]: q[primaryBar.field] ?? undefined,
-    ...(secondaryBar
-      ? { [secondaryBar.field]: q[secondaryBar.field] ?? undefined }
-      : {}),
-    ...(rateLine ? { [rateLine.field]: q[rateLine.field] ?? undefined } : {}),
-  }));
-
   return (
     <section>
       <div className='mb-1 flex items-baseline justify-between gap-3'>
@@ -93,146 +85,355 @@ export function QuarterlyBarLineChart({
       )}
 
       <div className='border-border bg-card rounded-xl border p-4'>
-        <ResponsiveContainer width='100%' height={280}>
-          <ComposedChart
-            data={data}
-            margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
-          >
-            <CartesianGrid
-              strokeDasharray='3 3'
-              vertical={false}
-              stroke='currentColor'
-              className='text-border'
+        <ParentSize>
+          {({ width }) => (
+            <ChartInner
+              width={width}
+              height={HEIGHT}
+              quarters={quarters}
+              primaryBar={primaryBar}
+              secondaryBar={secondaryBar}
+              rateLine={rateLine}
             />
-            <XAxis
-              dataKey='label'
-              fontSize={11}
-              tickLine={false}
-              axisLine={false}
-            />
-            <YAxis
-              yAxisId='amount'
-              orientation='left'
-              fontSize={11}
-              tickLine={false}
-              axisLine={false}
-              tickFormatter={(v: number) =>
-                v === 0 ? '0' : formatKoreanCurrency(v).replace('원', '')
-              }
-            />
-            {rateLine && (
-              <YAxis
-                yAxisId='rate'
-                orientation='right'
-                fontSize={11}
-                tickLine={false}
-                axisLine={false}
-                tickFormatter={(v: number) => `${v.toFixed(0)}%`}
-              />
-            )}
-            <Tooltip
-              content={
-                <CustomTooltip
-                  primaryBar={primaryBar}
-                  secondaryBar={secondaryBar}
-                  rateLine={rateLine}
-                />
-              }
-              cursor={{ fill: 'currentColor', fillOpacity: 0.05 }}
-            />
-            <Legend
-              wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
-              iconType='circle'
-              iconSize={8}
-            />
+          )}
+        </ParentSize>
 
-            <Bar
-              yAxisId='amount'
-              dataKey={primaryBar.field}
-              name={primaryBar.label}
-              fill={primaryBar.color}
-              radius={[4, 4, 0, 0]}
-              barSize={20}
+        {/* Legend */}
+        <div className='mt-3 flex flex-wrap items-center gap-3 text-xs'>
+          <LegendItem color={primaryBar.color} label={primaryBar.label} />
+          {secondaryBar && (
+            <LegendItem
+              color={secondaryBar.color}
+              label={secondaryBar.label}
+              opacity={0.55}
             />
-
-            {secondaryBar && (
-              <Bar
-                yAxisId='amount'
-                dataKey={secondaryBar.field}
-                name={secondaryBar.label}
-                fill={secondaryBar.color}
-                radius={[4, 4, 0, 0]}
-                barSize={20}
-                fillOpacity={0.55}
-              />
-            )}
-
-            {rateLine && (
-              <Line
-                yAxisId='rate'
-                type='monotone'
-                dataKey={rateLine.field}
-                name={rateLine.label}
-                stroke={rateLine.color}
-                strokeWidth={2}
-                dot={{ r: 3 }}
-                activeDot={{ r: 5 }}
-              />
-            )}
-          </ComposedChart>
-        </ResponsiveContainer>
+          )}
+          {rateLine && (
+            <LegendItem color={rateLine.color} label={rateLine.label} isLine />
+          )}
+        </div>
       </div>
     </section>
   );
 }
 
-interface TooltipPayload {
-  readonly name: string;
-  readonly value: number;
-  readonly dataKey: string;
-  readonly color: string;
+interface InnerProps {
+  readonly width: number;
+  readonly height: number;
+  readonly quarters: readonly QuarterlyDataPoint[];
+  readonly primaryBar: BarSpec;
+  readonly secondaryBar?: BarSpec;
+  readonly rateLine?: LineSpec;
 }
 
-interface TooltipProps {
-  readonly active?: boolean;
-  readonly payload?: readonly TooltipPayload[];
-  readonly label?: string;
-  readonly primaryBar: ChartProps['primaryBar'];
-  readonly secondaryBar?: ChartProps['secondaryBar'];
-  readonly rateLine?: ChartProps['rateLine'];
-}
+function ChartInner({
+  width,
+  height,
+  quarters,
+  primaryBar,
+  secondaryBar,
+  rateLine,
+}: InnerProps) {
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
-function CustomTooltip({ active, payload, label, rateLine }: TooltipProps) {
-  if (!active || !payload || payload.length === 0) return null;
+  const data = useMemo(
+    () =>
+      quarters.map((q, i) => ({
+        i,
+        label: q.label,
+        primary: q[primaryBar.field],
+        secondary: secondaryBar ? q[secondaryBar.field] : null,
+        rate: rateLine ? q[rateLine.field] : null,
+      })),
+    [quarters, primaryBar.field, secondaryBar, rateLine],
+  );
+
+  if (width === 0) return null;
+
+  const xMax = Math.max(0, width - margin.left - margin.right);
+  const yMax = Math.max(0, height - margin.top - margin.bottom);
+
+  // Y axis (amount) — primary + secondary 합쳐서 max
+  const amountVals = data.flatMap((d) =>
+    [d.primary, d.secondary].filter(
+      (v): v is number => v !== null && v !== undefined,
+    ),
+  );
+  const amountMax = amountVals.length ? Math.max(...amountVals, 0) : 1;
+  const yScaleAmount = scaleLinear({
+    range: [yMax, 0],
+    domain: [0, amountMax * 1.15 || 1],
+    nice: true,
+  });
+
+  // Y axis (rate)
+  const rateVals = rateLine
+    ? data
+        .map((d) => d.rate)
+        .filter((v): v is number => v !== null && v !== undefined)
+    : [];
+  const rateMin = rateVals.length ? Math.min(...rateVals, 0) : 0;
+  const rateMax = rateVals.length ? Math.max(...rateVals, 0) : 1;
+  const ratePad = (rateMax - rateMin) * 0.2 || 1;
+  const yScaleRate = scaleLinear({
+    range: [yMax, 0],
+    domain: [rateMin - ratePad, rateMax + ratePad],
+    nice: true,
+  });
+
+  // X axis (band)
+  const xScale = scaleBand({
+    range: [0, xMax],
+    domain: data.map((d) => d.label),
+    padding: 0.3,
+  });
+  const groupBandwidth = xScale.bandwidth();
+  const numBars = secondaryBar ? 2 : 1;
+  const barWidth = groupBandwidth / numBars;
 
   return (
-    <div className='border-border bg-card rounded-lg border p-3 shadow-lg'>
-      <p className='mb-1.5 text-xs font-medium'>{label}</p>
-      {payload.map((p) => {
-        const isRate = rateLine && p.dataKey === rateLine.field;
-        return (
-          <div
-            key={p.dataKey}
-            className='flex items-center justify-between gap-4 text-sm'
-          >
-            <span
-              className='inline-flex items-center gap-1.5'
-              style={{ color: p.color }}
-            >
-              <span
-                className='h-2 w-2 rounded-full'
-                style={{ backgroundColor: p.color }}
+    <div className='relative'>
+      <svg width={width} height={height}>
+        <Group left={margin.left} top={margin.top}>
+          <GridRows
+            scale={yScaleAmount}
+            width={xMax}
+            stroke='currentColor'
+            strokeOpacity={0.1}
+            strokeDasharray='3 3'
+            numTicks={5}
+          />
+
+          {/* Bars */}
+          {data.map((d) => {
+            const x0 = xScale(d.label) ?? 0;
+            return (
+              <Group key={d.i}>
+                {d.primary !== null && d.primary !== undefined && (
+                  <Bar
+                    x={x0}
+                    y={yScaleAmount(d.primary)}
+                    width={barWidth}
+                    height={yMax - yScaleAmount(d.primary)}
+                    fill={primaryBar.color}
+                    rx={3}
+                    onMouseEnter={() => setHoveredIdx(d.i)}
+                    onMouseLeave={() => setHoveredIdx(null)}
+                  />
+                )}
+                {secondaryBar &&
+                  d.secondary !== null &&
+                  d.secondary !== undefined && (
+                    <Bar
+                      x={x0 + barWidth}
+                      y={yScaleAmount(d.secondary)}
+                      width={barWidth}
+                      height={yMax - yScaleAmount(d.secondary)}
+                      fill={secondaryBar.color}
+                      fillOpacity={0.55}
+                      rx={3}
+                      onMouseEnter={() => setHoveredIdx(d.i)}
+                      onMouseLeave={() => setHoveredIdx(null)}
+                    />
+                  )}
+              </Group>
+            );
+          })}
+
+          {/* Line */}
+          {rateLine && rateVals.length > 0 && (
+            <>
+              <LinePath
+                data={data.filter(
+                  (d) => d.rate !== null && d.rate !== undefined,
+                )}
+                x={(d) => (xScale(d.label) ?? 0) + groupBandwidth / 2}
+                y={(d) => yScaleRate(d.rate as number)}
+                stroke={rateLine.color}
+                strokeWidth={2}
+                curve={curveMonotoneX}
               />
-              <span className='text-foreground'>{p.name}</span>
-            </span>
-            <span className='font-medium tabular-nums'>
-              {isRate
-                ? `${p.value.toFixed(2)}%`
-                : formatKoreanCurrency(p.value)}
-            </span>
-          </div>
-        );
-      })}
+              {data.map((d) =>
+                d.rate !== null && d.rate !== undefined ? (
+                  <circle
+                    key={`dot-${d.i}`}
+                    cx={(xScale(d.label) ?? 0) + groupBandwidth / 2}
+                    cy={yScaleRate(d.rate)}
+                    r={3}
+                    fill={rateLine.color}
+                  />
+                ) : null,
+              )}
+            </>
+          )}
+
+          {/* Axes */}
+          <AxisBottom
+            top={yMax}
+            scale={xScale}
+            stroke='currentColor'
+            tickStroke='transparent'
+            tickLabelProps={{
+              fontSize: 10,
+              fill: 'currentColor',
+              fillOpacity: 0.6,
+              textAnchor: 'middle',
+              dy: '0.6em',
+            }}
+          />
+          <AxisLeft
+            scale={yScaleAmount}
+            stroke='transparent'
+            tickStroke='transparent'
+            numTicks={5}
+            tickFormat={(v) =>
+              Number(v) === 0
+                ? '0'
+                : formatKoreanCurrency(Number(v)).replace('원', '')
+            }
+            tickLabelProps={{
+              fontSize: 10,
+              fill: 'currentColor',
+              fillOpacity: 0.6,
+              textAnchor: 'end',
+              dx: -4,
+              dy: 4,
+            }}
+          />
+          {rateLine && (
+            <AxisRight
+              left={xMax}
+              scale={yScaleRate}
+              stroke='transparent'
+              tickStroke='transparent'
+              numTicks={5}
+              tickFormat={(v) => `${Number(v).toFixed(0)}%`}
+              tickLabelProps={{
+                fontSize: 10,
+                fill: 'currentColor',
+                fillOpacity: 0.6,
+                textAnchor: 'start',
+                dx: 4,
+                dy: 4,
+              }}
+            />
+          )}
+        </Group>
+      </svg>
+
+      {hoveredIdx !== null && data[hoveredIdx] && (
+        <Tooltip
+          point={data[hoveredIdx]}
+          primaryBar={primaryBar}
+          secondaryBar={secondaryBar}
+          rateLine={rateLine}
+        />
+      )}
     </div>
+  );
+}
+
+interface TooltipPropsLocal {
+  readonly point: {
+    readonly label: string;
+    readonly primary: number | null;
+    readonly secondary: number | null;
+    readonly rate: number | null;
+  };
+  readonly primaryBar: BarSpec;
+  readonly secondaryBar?: BarSpec;
+  readonly rateLine?: LineSpec;
+}
+
+function Tooltip({
+  point,
+  primaryBar,
+  secondaryBar,
+  rateLine,
+}: TooltipPropsLocal) {
+  return (
+    <div
+      className='border-border bg-card pointer-events-none absolute top-0 left-1/2 -translate-x-1/2 rounded-lg border px-3 py-2 text-xs shadow-md'
+      style={{ minWidth: 160 }}
+    >
+      <div className='text-muted-foreground mb-1'>{point.label}</div>
+      <Row
+        color={primaryBar.color}
+        label={primaryBar.label}
+        value={
+          point.primary !== null ? formatKoreanCurrency(point.primary) : '-'
+        }
+      />
+      {secondaryBar && (
+        <Row
+          color={secondaryBar.color}
+          label={secondaryBar.label}
+          value={
+            point.secondary !== null
+              ? formatKoreanCurrency(point.secondary)
+              : '-'
+          }
+        />
+      )}
+      {rateLine && (
+        <Row
+          color={rateLine.color}
+          label={rateLine.label}
+          value={point.rate !== null ? `${point.rate.toFixed(2)}%` : '-'}
+        />
+      )}
+    </div>
+  );
+}
+
+function Row({
+  color,
+  label,
+  value,
+}: {
+  readonly color: string;
+  readonly label: string;
+  readonly value: string;
+}) {
+  return (
+    <div className='flex items-center justify-between gap-3'>
+      <span className='inline-flex items-center gap-1.5'>
+        <span
+          className='inline-block h-2 w-2 rounded-full'
+          style={{ backgroundColor: color }}
+        />
+        <span>{label}</span>
+      </span>
+      <span className='font-medium tabular-nums'>{value}</span>
+    </div>
+  );
+}
+
+function LegendItem({
+  color,
+  label,
+  opacity = 1,
+  isLine = false,
+}: {
+  readonly color: string;
+  readonly label: string;
+  readonly opacity?: number;
+  readonly isLine?: boolean;
+}) {
+  return (
+    <span className='inline-flex items-center gap-1.5'>
+      {isLine ? (
+        <span
+          className='inline-block h-0.5 w-3'
+          style={{ backgroundColor: color }}
+        />
+      ) : (
+        <span
+          className='inline-block h-2 w-2 rounded-sm'
+          style={{ backgroundColor: color, opacity }}
+        />
+      )}
+      <span className='text-muted-foreground'>{label}</span>
+    </span>
   );
 }

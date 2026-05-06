@@ -62,16 +62,21 @@ export async function GET(request: Request) {
 
   const { nation, sort, limit, offset } = parsed.data;
 
+  // 시총 정렬 시 nation 별 단위 다름 (KR 원 / US 달러) → KRW 단일 단위로 환산
+  // 환율은 대략 (정확한 시세 데이터 없음). ranking 용도라 ±5% 오차 허용.
+  const KRW_PER_USD = 1380;
+  const marketCapKrw = `(CASE WHEN nation = 'US' THEN market_cap * ${KRW_PER_USD} ELSE market_cap END)`;
+
   // 정렬 SQL fragment
   const orderBy = (() => {
     switch (sort) {
       case 'marketcap_asc':
-        return 'market_cap ASC NULLS LAST';
+        return `${marketCapKrw} ASC NULLS LAST`;
       case 'name':
         return 'corp_name ASC';
       case 'marketcap_desc':
       default:
-        return 'market_cap DESC NULLS LAST';
+        return `${marketCapKrw} DESC NULLS LAST`;
     }
   })();
 

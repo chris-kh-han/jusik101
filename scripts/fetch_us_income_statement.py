@@ -247,6 +247,32 @@ def first_present_tag(facts: dict[str, Any], tags: Iterable[str]) -> dict[str, A
     return None
 
 
+def extract_period_entries_merged(
+    facts: dict[str, Any], tags: Iterable[str], since_year: int
+) -> dict[tuple[int, str], dict[str, Any]]:
+    """
+    여러 fallback 태그의 entries를 (fy, period) 단위로 merge.
+
+    문제: first_present_tag는 1순위 태그만 반환 → 그 태그가 일부 fy만
+    커버하면 나머지 fy는 빈 칸이 됨 (예: NVIDIA의 RevenueFromContract...
+    는 fy 2019~2022만 → fy 2023+ 비어있음, 정작 Revenues 태그엔 다 있음).
+
+    해결: 모든 fallback 태그 순회 → 같은 (fy, period) 키엔 1순위 태그 우선
+    (이미 있으면 skip), 없는 키만 후순위 태그에서 채움.
+    """
+    us_gaap = facts.get("facts", {}).get("us-gaap", {})
+    merged: dict[tuple[int, str], dict[str, Any]] = {}
+    for tag in tags:
+        info = us_gaap.get(tag)
+        if not info:
+            continue
+        per = extract_period_entries(info, since_year)
+        for key, entry in per.items():
+            if key not in merged:
+                merged[key] = entry
+    return merged
+
+
 def extract_period_entries(
     info: dict[str, Any] | None, since_year: int
 ) -> dict[tuple[int, str], dict[str, Any]]:
@@ -384,18 +410,20 @@ def process_company(
         return []
 
     # 각 직접 신고 항목 추출 → key=(item_account_name) → {(fy,period): entry}
+    # fallback 태그를 (fy, period) 단위로 merge (1순위 우선)
+    # → 1순위 태그가 일부 fy만 커버해도 나머지를 후순위에서 보충 (예: NVIDIA Revenues)
     direct_extracted: dict[str, dict[tuple[int, str], dict[str, Any]]] = {}
     for order, account_name, label, tags in INCOME_STATEMENT_ITEMS:
         if not tags:
             continue  # computed 항목은 별도
-        info = first_present_tag(facts, tags)
-        per = extract_period_entries(info, since_year)
+        per = extract_period_entries_merged(facts, tags, since_year)
         is_avg = account_name in AVERAGE_VALUE_ACCOUNTS
         direct_extracted[account_name] = fp_synthesize_q4(per, is_average=is_avg)
 
     # 추가 helper 태그 (computed용) — D&A는 누적 항목
-    da_info = first_present_tag(facts, DA_TAGS)
-    da_extracted = fp_synthesize_q4(extract_period_entries(da_info, since_year))
+    da_extracted = fp_synthesize_q4(
+        extract_period_entries_merged(facts, DA_TAGS, since_year)
+    )
 
     # Computed 항목 계산
     def get_val(account: str, key: tuple[int, str]) -> float | None:

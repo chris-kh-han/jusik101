@@ -62,10 +62,15 @@ export function SearchBar() {
   }, []);
 
   const navigateToCompany = useCallback(
-    (corpCode: string) => {
+    (corpCode: string, nation?: 'KR' | 'US') => {
       setIsOpen(false);
       setQuery('');
-      router.push(`/company/${corpCode}`);
+      // 미국 종목은 /us/[ticker] 라우트, 한국은 /company/[corpCode]
+      if (nation === 'US') {
+        router.push(`/us/${corpCode}`);
+      } else {
+        router.push(`/company/${corpCode}`);
+      }
     },
     [router],
   );
@@ -90,7 +95,8 @@ export function SearchBar() {
         case 'Enter':
           e.preventDefault();
           if (selectedIndex >= 0 && selectedIndex < results.length) {
-            navigateToCompany(results[selectedIndex].corpCode);
+            const r = results[selectedIndex];
+            navigateToCompany(r.corpCode, r.nation);
           }
           break;
         case 'Escape':
@@ -144,30 +150,44 @@ export function SearchBar() {
           className='border-border bg-card absolute z-50 mt-2 w-full overflow-hidden rounded-xl border shadow-lg'
           role='listbox'
         >
-          {results.map((result, index) => (
-            <li
-              key={result.corpCode}
-              role='option'
-              aria-selected={index === selectedIndex}
-              className={`flex cursor-pointer items-center justify-between px-4 py-3 transition-colors ${
-                index === selectedIndex
-                  ? 'bg-accent text-accent-foreground'
-                  : 'hover:bg-muted'
-              }`}
-              onClick={() => navigateToCompany(result.corpCode)}
-              onMouseEnter={() => setSelectedIndex(index)}
-            >
-              <div>
-                <span className='font-medium'>{result.corpName}</span>
-                <span className='text-muted-foreground ml-2 text-sm'>
-                  {result.stockCode}
+          {results.map((result, index) => {
+            const isUs = result.nation === 'US';
+            const flag = isUs ? '🇺🇸' : '🇰🇷';
+            return (
+              <li
+                key={`${result.nation ?? 'KR'}-${result.corpCode}`}
+                role='option'
+                aria-selected={index === selectedIndex}
+                className={`flex cursor-pointer items-center justify-between px-4 py-3 transition-colors ${
+                  index === selectedIndex
+                    ? 'bg-accent text-accent-foreground'
+                    : 'hover:bg-muted'
+                }`}
+                onClick={() =>
+                  navigateToCompany(result.corpCode, result.nation)
+                }
+                onMouseEnter={() => setSelectedIndex(index)}
+              >
+                <div className='flex items-center gap-2'>
+                  <span
+                    className='text-base'
+                    aria-label={isUs ? '미국' : '한국'}
+                  >
+                    {flag}
+                  </span>
+                  <div>
+                    <span className='font-medium'>{result.corpName}</span>
+                    <span className='text-muted-foreground ml-2 text-sm'>
+                      {result.stockCode}
+                    </span>
+                  </div>
+                </div>
+                <span className='bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs'>
+                  {result.listedMarket}
                 </span>
-              </div>
-              <span className='bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs'>
-                {result.listedMarket}
-              </span>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       )}
 

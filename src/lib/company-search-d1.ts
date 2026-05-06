@@ -23,6 +23,7 @@ interface CompanyRow {
   readonly stock_code: string | null;
   readonly listed_market: string | null;
   readonly market_cap?: number | null;
+  readonly nation?: string | null; // 'KR' | 'US' (UNION 시)
 }
 
 interface ScoredCompanyRow extends CompanyRow {
@@ -46,37 +47,63 @@ export async function searchCompaniesD1(
   const lowerQuery = trimmed.toLowerCase();
 
   // SQLite LIKE는 ASCII만 case-insensitive (한글은 대소문자 개념 없으므로 OK)
+  // 한·미 통합: companies + us_companies UNION.
+  //   - 한국: corp_code = DART corpCode (8자리)
+  //   - 미국: corp_code = ticker (대문자)로 통일 — 라우팅 시 nation으로 분기
   // SQL 인젝션 방지를 위해 항상 prepared statement 사용
-  // 정렬: 매칭 점수 → 시가총액 (DESC, NULL은 SQLite에서 DESC 시 마지막) → 회사명
   const sql = `
-    SELECT corp_code, corp_name, stock_code, listed_market, market_cap, MAX(score) as score
+    SELECT corp_code, corp_name, stock_code, listed_market, market_cap, nation, MAX(score) as score
     FROM (
-      -- 정확 일치
-      SELECT corp_code, corp_name, stock_code, listed_market, market_cap, 100 as score
-      FROM companies
-      WHERE corp_name = ?1 OR stock_code = ?1
+      -- ── 한국 (companies) ──────────────────────────────────────
+      SELECT corp_code, corp_name, stock_code, listed_market, market_cap,
+             'KR' AS nation, 100 AS score
+      FROM companies WHERE corp_name = ?1 OR stock_code = ?1
       UNION ALL
-      -- 회사명 접두사
-      SELECT corp_code, corp_name, stock_code, listed_market, market_cap, 80 as score
-      FROM companies
-      WHERE corp_name LIKE ?2
+      SELECT corp_code, corp_name, stock_code, listed_market, market_cap,
+             'KR' AS nation, 80 AS score
+      FROM companies WHERE corp_name LIKE ?2
       UNION ALL
-      -- 종목코드 접두사
-      SELECT corp_code, corp_name, stock_code, listed_market, market_cap, 75 as score
-      FROM companies
-      WHERE stock_code LIKE ?2
+      SELECT corp_code, corp_name, stock_code, listed_market, market_cap,
+             'KR' AS nation, 75 AS score
+      FROM companies WHERE stock_code LIKE ?2
       UNION ALL
-      -- 회사명 부분 일치
-      SELECT corp_code, corp_name, stock_code, listed_market, market_cap, 50 as score
-      FROM companies
-      WHERE corp_name LIKE ?3
+      SELECT corp_code, corp_name, stock_code, listed_market, market_cap,
+             'KR' AS nation, 50 AS score
+      FROM companies WHERE corp_name LIKE ?3
       UNION ALL
-      -- 종목코드 부분 일치
-      SELECT corp_code, corp_name, stock_code, listed_market, market_cap, 45 as score
-      FROM companies
-      WHERE stock_code LIKE ?3
+      SELECT corp_code, corp_name, stock_code, listed_market, market_cap,
+             'KR' AS nation, 45 AS score
+      FROM companies WHERE stock_code LIKE ?3
+
+      -- ── 미국 (us_companies) ───────────────────────────────────
+      UNION ALL
+      SELECT ticker AS corp_code, name AS corp_name, ticker AS stock_code,
+             COALESCE(exchange, 'US') AS listed_market, market_cap,
+             'US' AS nation, 100 AS score
+      FROM us_companies
+      WHERE LOWER(name) = ?1 OR LOWER(ticker) = ?1
+      UNION ALL
+      SELECT ticker AS corp_code, name AS corp_name, ticker AS stock_code,
+             COALESCE(exchange, 'US') AS listed_market, market_cap,
+             'US' AS nation, 80 AS score
+      FROM us_companies WHERE LOWER(name) LIKE ?2
+      UNION ALL
+      SELECT ticker AS corp_code, name AS corp_name, ticker AS stock_code,
+             COALESCE(exchange, 'US') AS listed_market, market_cap,
+             'US' AS nation, 75 AS score
+      FROM us_companies WHERE LOWER(ticker) LIKE ?2
+      UNION ALL
+      SELECT ticker AS corp_code, name AS corp_name, ticker AS stock_code,
+             COALESCE(exchange, 'US') AS listed_market, market_cap,
+             'US' AS nation, 50 AS score
+      FROM us_companies WHERE LOWER(name) LIKE ?3
+      UNION ALL
+      SELECT ticker AS corp_code, name AS corp_name, ticker AS stock_code,
+             COALESCE(exchange, 'US') AS listed_market, market_cap,
+             'US' AS nation, 45 AS score
+      FROM us_companies WHERE LOWER(ticker) LIKE ?3
     )
-    GROUP BY corp_code
+    GROUP BY corp_code, nation
     ORDER BY score DESC, market_cap DESC, corp_name ASC
     LIMIT ?4
   `;
@@ -167,5 +194,6 @@ function rowToSearchResult(row: CompanyRow): SearchResult {
     corpName: row.corp_name,
     stockCode: row.stock_code ?? '',
     listedMarket: row.listed_market ?? '',
+    nation: row.nation === 'US' ? 'US' : 'KR',
   };
 }

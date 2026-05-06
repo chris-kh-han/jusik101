@@ -132,11 +132,15 @@ export const REPORT_CODE_LABELS: Record<ReportCode, string> = {
 export type FsDiv = 'CFS' | 'OFS';
 
 /** 검색 결과 */
+/** 종목 국가 — 검색 결과에 깃발 표시용 + 라우팅 분기 (KR → /company, US → /us) */
+export type Nation = 'KR' | 'US';
+
 export interface SearchResult {
-  readonly corpCode: string;
+  readonly corpCode: string; // KR: DART corpCode, US: ticker (대문자)
   readonly corpName: string;
-  readonly stockCode: string;
-  readonly listedMarket: string;
+  readonly stockCode: string; // KR: 6자리 종목코드, US: ticker
+  readonly listedMarket: string; // 'KOSPI'/'KOSDAQ'/'NASDAQ'/'NYSE'
+  readonly nation?: Nation; // 미설정 시 KR 디폴트 (기존 데이터 호환)
 }
 
 /** 한국 통화 포맷 옵션 */

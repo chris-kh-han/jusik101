@@ -153,6 +153,20 @@ function ChartInner({
   const xMax = Math.max(0, width - margin.left - margin.right);
   const yMax = Math.max(0, height - margin.top - margin.bottom);
 
+  // 1년 단위 라벨 (분기 12개라 매 분기 표시 시 겹침)
+  const yearTicks = (() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const d of data) {
+      const year = d.label.split(' ')[0];
+      if (year && !seen.has(year)) {
+        seen.add(year);
+        out.push(d.label);
+      }
+    }
+    return out;
+  })();
+
   // Y axis (amount) — primary + secondary 합쳐서 max
   const amountVals = data.flatMap((d) =>
     [d.primary, d.secondary].filter(
@@ -273,10 +287,11 @@ function ChartInner({
             scale={xScale}
             stroke='currentColor'
             tickStroke='transparent'
+            tickValues={yearTicks}
             tickLabelProps={{
-              fontSize: 10,
+              fontSize: 11,
               fill: 'currentColor',
-              fillOpacity: 0.6,
+              fillOpacity: 0.7,
               textAnchor: 'middle',
               dy: '0.6em',
             }}

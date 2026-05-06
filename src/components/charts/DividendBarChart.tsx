@@ -32,8 +32,8 @@ interface ChartDatum {
   readonly dps: number;
 }
 
-const margin = { top: 16, right: 16, bottom: 56, left: 60 };
-const HEIGHT = 320;
+const margin = { top: 16, right: 16, bottom: 36, left: 60 };
+const HEIGHT = 300;
 const BAR_COLOR = '#a855f7';
 
 export function DividendBarChart({ points }: Props) {
@@ -81,6 +81,20 @@ function ChartInner({ width, height, data }: InnerProps) {
 
   const xMax = Math.max(0, width - margin.left - margin.right);
   const yMax = Math.max(0, height - margin.top - margin.bottom);
+
+  // 1년 단위 ticks (토스 스타일) — 분기마다 라벨이 너무 많아 막대 침범 방지
+  const yearTicks = (() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const d of data) {
+      const year = d.label.split(' ')[0]; // '22년'
+      if (year && !seen.has(year)) {
+        seen.add(year);
+        out.push(d.label);
+      }
+    }
+    return out;
+  })();
 
   const maxDps = Math.max(...data.map((d) => d.dps), 0);
   const yDomainMax = maxDps > 0 ? maxDps * 1.15 : 1;
@@ -137,12 +151,13 @@ function ChartInner({ width, height, data }: InnerProps) {
             scale={xScale}
             stroke='currentColor'
             tickStroke='transparent'
+            tickValues={yearTicks}
             tickLabelProps={{
-              fontSize: 10,
+              fontSize: 11,
               fill: 'currentColor',
-              fillOpacity: 0.6,
-              textAnchor: 'end',
-              transform: `translate(0, 0) rotate(-35)`,
+              fillOpacity: 0.7,
+              textAnchor: 'middle',
+              dy: '0.6em',
             }}
           />
           <AxisLeft

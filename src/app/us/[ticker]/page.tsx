@@ -19,6 +19,7 @@ import { StabilityMetricsCards } from '@/components/dashboard/StabilityMetricsCa
 import { loadUsCompanyPageData } from '@/lib/us-data-loader';
 import { buildUsQuarterlySeries, calculateTtm } from '@/lib/us-quarterly';
 import { buildUsQuarterlyDividends } from '@/lib/us-quarterly-dividend';
+import { loadFinancialFacts } from '@/lib/us-financial-facts-loader';
 import type { D1Database } from '@cloudflare/workers-types';
 
 // 차트 컴포넌트는 worker bundle 크기 줄이기 위해 dynamic import (Recharts ~75KB gzip).
@@ -36,6 +37,11 @@ const QuarterlyBarLineChart = dynamic(() =>
 const QuarterlyStabilityChart = dynamic(() =>
   import('@/components/charts/QuarterlyStabilityChart').then((m) => ({
     default: m.QuarterlyStabilityChart,
+  })),
+);
+const FinancialStatementTable = dynamic(() =>
+  import('@/components/dashboard/FinancialStatementTable').then((m) => ({
+    default: m.FinancialStatementTable,
   })),
 );
 
@@ -80,10 +86,10 @@ export default async function UsCompanyPage({ params }: PageProps) {
   const ticker = rawTicker.toUpperCase();
 
   const db = await getD1Optional();
-  const { company, financials, dividends } = await loadUsCompanyPageData(
-    db,
-    ticker,
-  );
+  const [{ company, financials, dividends }, isFacts] = await Promise.all([
+    loadUsCompanyPageData(db, ticker),
+    loadFinancialFacts(db, ticker, 'IS'),
+  ]);
 
   if (!company) {
     notFound();
@@ -295,8 +301,12 @@ export default async function UsCompanyPage({ params }: PageProps) {
           <QuarterlyStabilityChart quarters={quarterly} />
         )}
 
-        {/* 8. 종합 평가 (HealthScoreCard 재활용 — 한국과 동일 점수 로직 유사 적용) */}
-        {/* 미국용 HealthScore는 차후 별도 PR로 구현 — 지금은 생략 */}
+        {/* 8. TradingView 스타일 Income Statement 표 (24 항목, Annual/Quarterly 토글) */}
+        {isFacts.length > 0 && (
+          <FinancialStatementTable facts={isFacts} title='Income Statement' />
+        )}
+
+        {/* 종합 평가 (HealthScoreCard 재활용) — 미국용 점수 로직은 차후 PR */}
       </div>
     </div>
   );

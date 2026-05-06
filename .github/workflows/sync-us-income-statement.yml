@@ -1,0 +1,126 @@
+name: Sync US Income Statement (Weekly)
+
+# 매주 월요일 05:30 UTC — sync-us-financials 1시간 후
+on:
+  schedule:
+    - cron: '30 5 * * 1'
+  workflow_dispatch:
+    inputs:
+      years:
+        description: '수집 기간 (년)'
+        required: false
+        default: '5'
+      limit:
+        description: '디버깅: top N (0 = 전체)'
+        required: false
+        default: '0'
+
+jobs:
+  sync:
+    name: Fetch SEC Income Statement (24 items) and POST
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: scripts/requirements.txt
+
+      - name: Install Python deps
+        run: pip install -r scripts/requirements.txt
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install wrangler
+        run: npm install -g wrangler@4
+
+      - name: Export us_companies from D1
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/sync
+
+          wrangler d1 execute jusik101-companies --remote \
+            --command="SELECT ticker, cik FROM us_companies ORDER BY market_cap DESC NULLS LAST" \
+            --json > /tmp/sync/d1_us.json
+
+          python3 <<'EOF'
+          import json
+          with open('/tmp/sync/d1_us.json') as f:
+              raw = json.load(f)
+          rows = raw[0]['results'] if isinstance(raw, list) else raw.get('results', [])
+          out = [{"ticker": r["ticker"], "cik": r["cik"]} for r in rows if r.get("ticker") and r.get("cik")]
+          with open('/tmp/sync/companies.json', 'w') as f:
+              json.dump(out, f)
+          print(f'us_companies loaded: {len(out)}')
+          EOF
+
+      - name: Fetch US Income Statement
+        env:
+          EDGAR_USER_AGENT: ${{ secrets.EDGAR_USER_AGENT }}
+          YEARS: ${{ github.event.inputs.years || '5' }}
+          LIMIT: ${{ github.event.inputs.limit || '0' }}
+          COMPANIES_FILE: /tmp/sync/companies.json
+        run: |
+          set -euo pipefail
+          python3 scripts/fetch_us_income_statement.py > /tmp/sync/us_is.json
+          ROWS=$(python3 -c "import json; print(len(json.load(open('/tmp/sync/us_is.json'))))")
+          echo "::notice::Collected $ROWS IS rows"
+
+      - name: Warm up Worker
+        run: |
+          curl -sS -o /dev/null --max-time 30 --ipv4 \
+            -H "User-Agent: jusik101-cron/1.0" \
+            "https://jusik101.pages.dev/api/search?q=test" || true
+
+      - name: POST batched
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          SYNC_URL: https://jusik101.pages.dev/api/sync/us-financial-facts
+        run: |
+          set -euo pipefail
+          python3 <<'EOF'
+          import json, os, subprocess, sys
+          with open('/tmp/sync/us_is.json') as f:
+              items = json.load(f)
+          if not items:
+              print('[sync] no items')
+              sys.exit(0)
+          BATCH = 5000
+          url = os.environ['SYNC_URL']
+          secret = os.environ['CRON_SECRET']
+          for i in range(0, len(items), BATCH):
+              chunk = items[i : i + BATCH]
+              path = f'/tmp/sync/chunk_{i}.json'
+              with open(path, 'w') as f:
+                  json.dump(chunk, f, ensure_ascii=False)
+              cmd = [
+                  'curl', '-sS', '-X', 'POST', url,
+                  '-H', f'Authorization: Bearer {secret}',
+                  '-H', 'Content-Type: application/json',
+                  '-H', 'User-Agent: jusik101-cron/1.0',
+                  '--ipv4', '--max-time', '300',
+                  '--retry', '2', '--retry-delay', '5', '--retry-all-errors',
+                  '--data-binary', f'@{path}',
+                  '-w', '\n__HTTP_CODE__:%{http_code}\n',
+              ]
+              result = subprocess.run(cmd, capture_output=True, text=True)
+              http_code = '?'
+              for line in result.stdout.splitlines():
+                  if line.startswith('__HTTP_CODE__:'):
+                      http_code = line.split(':', 1)[1]
+              print(f'[sync] chunk {i // BATCH + 1}: HTTP {http_code}, items={len(chunk)}')
+              if http_code != '200':
+                  print('[sync] body:', result.stdout, file=sys.stderr)
+                  sys.exit(1)
+          EOF

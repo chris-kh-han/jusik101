@@ -103,6 +103,20 @@ function ChartInner({ width, height, quarters }: InnerProps) {
   const xMax = Math.max(0, width - margin.left - margin.right);
   const yMax = Math.max(0, height - margin.top - margin.bottom);
 
+  // 1년 단위 라벨
+  const yearTicks = (() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const d of data) {
+      const year = d.label.split(' ')[0];
+      if (year && !seen.has(year)) {
+        seen.add(year);
+        out.push(d.label);
+      }
+    }
+    return out;
+  })();
+
   const stackedMax = Math.max(...data.map((d) => d.total ?? 0), 0);
   const yScaleAmount = scaleLinear({
     range: [yMax, 0],
@@ -213,10 +227,11 @@ function ChartInner({ width, height, quarters }: InnerProps) {
             scale={xScale}
             stroke='currentColor'
             tickStroke='transparent'
+            tickValues={yearTicks}
             tickLabelProps={{
-              fontSize: 10,
+              fontSize: 11,
               fill: 'currentColor',
-              fillOpacity: 0.6,
+              fillOpacity: 0.7,
               textAnchor: 'middle',
               dy: '0.6em',
             }}

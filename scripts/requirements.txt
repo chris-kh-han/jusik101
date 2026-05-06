@@ -1,0 +1,2 @@
+FinanceDataReader>=0.9.96
+requests>=2.32

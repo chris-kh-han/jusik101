@@ -106,8 +106,10 @@ def fetch_sp500_extras() -> dict[str, dict[str, Any]]:
 
 def fetch_marketcap_for(tickers: list[str]) -> dict[str, int]:
     """
-    NASDAQ + NYSE 거래소 listing에서 시총 추출.
-    티커별로 조회하지 말고 한 번에 받아서 dict.
+    1차: NASDAQ + NYSE 거래소 listing의 시총 컬럼 (FDR)
+    2차 fallback: yfinance Ticker(t).info["marketCap"] (시간 좀 걸림)
+
+    FDR StockListing은 시총 컬럼이 없는 경우 다수라 yfinance fallback 필수.
     """
     caps: dict[str, int] = {}
     exchanges: dict[str, str] = {}
@@ -146,6 +148,52 @@ def fetch_marketcap_for(tickers: list[str]) -> dict[str, int]:
     return caps, exchanges  # type: ignore
 
 
+def fill_marketcaps_yfinance(
+    tickers: list[str], existing: dict[str, int]
+) -> dict[str, int]:
+    """
+    yfinance Ticker(t).info["marketCap"]로 누락된 시총 보강.
+
+    FDR listing에 시총 컬럼이 없거나 NaN인 경우 fallback.
+    종목별 호출이라 시간 걸림 (501 종목 × 0.5초 ≈ 4분).
+    """
+    try:
+        import yfinance as yf
+    except ImportError:
+        print(
+            "[fetch_us_companies] yfinance not available, skipping marketcap fallback",
+            file=sys.stderr,
+        )
+        return existing
+
+    out = dict(existing)
+    missing = [t for t in tickers if t not in existing]
+    print(
+        f"[fetch_us_companies] yfinance fallback for {len(missing)} tickers",
+        file=sys.stderr,
+    )
+    for i, t in enumerate(missing, 1):
+        try:
+            info = yf.Ticker(t).info
+            mcap = info.get("marketCap")
+            if isinstance(mcap, (int, float)) and mcap > 0:
+                out[t] = int(mcap)
+        except Exception as e:
+            # rate limit / network 에러 — 조용히 skip
+            if i <= 3:
+                print(f"[fetch_us_companies] {t} yfinance error: {e}", file=sys.stderr)
+        if i % 50 == 0:
+            print(
+                f"[fetch_us_companies] yfinance progress {i}/{len(missing)} (filled {len(out) - len(existing)})",
+                file=sys.stderr,
+            )
+    print(
+        f"[fetch_us_companies] yfinance filled {len(out) - len(existing)} new caps",
+        file=sys.stderr,
+    )
+    return out
+
+
 # ── 메인 ───────────────────────────────────────────────────────────────────
 def main() -> int:
     ticker_map = fetch_ticker_to_cik()
@@ -165,6 +213,9 @@ def main() -> int:
         f"[fetch_us_companies] scope={LIST_SCOPE}, target tickers={len(target_tickers)}",
         file=sys.stderr,
     )
+
+    # FDR로 안 잡힌 시총은 yfinance로 보강 (target에 들어간 종목만)
+    caps = fill_marketcaps_yfinance(sorted(target_tickers), caps)
 
     output: list[dict[str, Any]] = []
     for ticker in sorted(target_tickers):

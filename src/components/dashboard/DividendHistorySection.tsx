@@ -20,14 +20,22 @@ import { useState } from 'react';
 import { DividendBarChart } from '@/components/charts/DividendBarChart';
 import type { QuarterlyDividendPoint } from '@/lib/quarterly-dividend';
 
+/** 통화 표시 모드 */
+export type CurrencyLocale = 'KRW' | 'USD';
+
 interface Props {
   readonly points: readonly QuarterlyDividendPoint[];
   readonly fiscalMonth: number;
+  readonly currency?: CurrencyLocale;
 }
 
 type Period = 3 | 5 | 10;
 
-export function DividendHistorySection({ points, fiscalMonth }: Props) {
+export function DividendHistorySection({
+  points,
+  fiscalMonth,
+  currency = 'KRW',
+}: Props) {
   const [period, setPeriod] = useState<Period>(5);
 
   if (points.length === 0) return null;
@@ -54,7 +62,7 @@ export function DividendHistorySection({ points, fiscalMonth }: Props) {
       <p className='text-muted-foreground mt-1 text-sm'>
         지난 {period}년 동안 지급한 주당배당금은 총{' '}
         <span className='text-foreground font-semibold'>
-          {totalDps.toLocaleString('ko-KR')}원
+          {formatMoney(totalDps, currency)}
         </span>
         이에요.
       </p>
@@ -106,7 +114,7 @@ export function DividendHistorySection({ points, fiscalMonth }: Props) {
                   </td>
                 )}
                 <td className='py-2.5 text-right text-sm font-medium tabular-nums'>
-                  {p.dividendPerShare.toLocaleString('ko-KR')}원
+                  {formatMoney(p.dividendPerShare, currency)}
                 </td>
               </tr>
             ))}
@@ -123,11 +131,25 @@ export function DividendHistorySection({ points, fiscalMonth }: Props) {
   );
 }
 
-/** 'YYYY-MM-DD' → 'YY년 M월 D일' (토스 스타일) */
+/** 'YYYY-MM-DD' → 'YY년 M월 D일' (토스 스타일, locale 무관 — 한국어 UI 유지) */
 function formatDate(iso: string): string {
   if (iso.length < 10) return iso;
   const yy = iso.slice(2, 4);
   const mm = parseInt(iso.slice(5, 7), 10);
   const dd = parseInt(iso.slice(8, 10), 10);
   return `${yy}년 ${mm}월 ${dd}일`;
+}
+
+/**
+ * 통화 locale에 따라 표시 분기.
+ *   - KRW: 363원 (정수, ko-KR comma)
+ *   - USD: $0.26 (소수점 2자리, < $100), $123 (정수)
+ */
+function formatMoney(value: number, currency: CurrencyLocale): string {
+  if (currency === 'USD') {
+    const sign = value < 0 ? '-' : '';
+    const abs = Math.abs(value);
+    return `${sign}$${abs.toFixed(abs < 100 ? 2 : 0)}`;
+  }
+  return `${Math.round(value).toLocaleString('ko-KR')}원`;
 }

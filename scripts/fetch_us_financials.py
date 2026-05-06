@@ -206,23 +206,31 @@ def extract_quarterly_pnl(
         except ValueError:
             continue
 
-        # 분기 entry (80-100일)
+        # 분기 entry (80-100일) — fp=FY 제외 (FY는 누적값이라 분기 단독 X)
         if 80 <= days <= 100:
-            if fp not in ("Q1", "Q2", "Q3", "Q4", "FY"):
+            if fp not in ("Q1", "Q2", "Q3", "Q4"):
                 continue
             key = (int(fy), str(fp))
             existing = out.get(key)
             if existing:
-                existing_pri = (
-                    form_priority(existing.get("form")),
-                    existing.get("filed", ""),
-                )
-                new_pri = (
-                    form_priority(e.get("form")),
-                    e.get("filed", ""),
-                )
-                if new_pri <= existing_pri:
+                # SEC XBRL은 같은 (fy, fp) 키에 비교용 prior year entry도 포함
+                # → end가 더 최근인 것이 직접 신고. end < existing이면 비교용 → skip
+                existing_end = existing.get("end", "")
+                new_end = e.get("end", "")
+                if new_end < existing_end:
                     continue
+                if new_end == existing_end:
+                    # 같은 end (정정/재신고) → form 우선순위 + filed 최근
+                    existing_pri = (
+                        form_priority(existing.get("form")),
+                        existing.get("filed", ""),
+                    )
+                    new_pri = (
+                        form_priority(e.get("form")),
+                        e.get("filed", ""),
+                    )
+                    if new_pri <= existing_pri:
+                        continue
             out[key] = e
             continue
 
@@ -230,16 +238,21 @@ def extract_quarterly_pnl(
         if 350 <= days <= 380 and fp == "FY":
             existing = fy_cumulative.get(int(fy))
             if existing:
-                existing_pri = (
-                    form_priority(existing.get("form")),
-                    existing.get("filed", ""),
-                )
-                new_pri = (
-                    form_priority(e.get("form")),
-                    e.get("filed", ""),
-                )
-                if new_pri <= existing_pri:
+                existing_end = existing.get("end", "")
+                new_end = e.get("end", "")
+                if new_end < existing_end:
                     continue
+                if new_end == existing_end:
+                    existing_pri = (
+                        form_priority(existing.get("form")),
+                        existing.get("filed", ""),
+                    )
+                    new_pri = (
+                        form_priority(e.get("form")),
+                        e.get("filed", ""),
+                    )
+                    if new_pri <= existing_pri:
+                        continue
             fy_cumulative[int(fy)] = e
 
     # Q4 합성: FY - (Q1 + Q2 + Q3)
@@ -280,6 +293,8 @@ def extract_quarterly_bs(
     """
     BS 태그에서 분기말 시점값 추출 → (fy, fp) → entry dict.
     BS는 start 없고 end만 있음.
+
+    SEC XBRL은 같은 (fy, fp)에 비교용 prior year entry도 포함 → end 가장 최근 채택.
     """
     if not info:
         return {}
@@ -300,13 +315,18 @@ def extract_quarterly_bs(
         key = (int(fy), str(fp))
         existing = out.get(key)
         if existing:
-            existing_pri = (
-                form_priority(existing.get("form")),
-                existing.get("filed", ""),
-            )
-            new_pri = (form_priority(e.get("form")), e.get("filed", ""))
-            if new_pri <= existing_pri:
-                continue
+            existing_end = existing.get("end", "")
+            new_end = e.get("end", "")
+            if new_end < existing_end:
+                continue  # 비교용 prior year entry → skip
+            if new_end == existing_end:
+                existing_pri = (
+                    form_priority(existing.get("form")),
+                    existing.get("filed", ""),
+                )
+                new_pri = (form_priority(e.get("form")), e.get("filed", ""))
+                if new_pri <= existing_pri:
+                    continue
         out[key] = e
     return out
 

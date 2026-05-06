@@ -176,18 +176,28 @@ def extract_quarterly_pnl(
     """
     PnL/DPS 태그에서 분기 entry 추출 → (fy, fp) → entry dict.
     같은 (fy, fp) 여러 entry 있으면 (form_priority, filed) 최댓값 채택.
+
+    Q4 채움 로직:
+      - SEC XBRL에서 회사가 Q4 단독을 따로 신고 안 하는 경우 다수 (10-K엔 FY 합계만)
+      - FY (350-380일 누적) entry가 있고 Q1/Q2/Q3가 추출됐으면
+        Q4 = FY - (Q1 + Q2 + Q3)로 합성 entry 생성
     """
     if not info:
         return {}
     entries = pick_unit_entries(info)
+
+    # 분기 entry (80-100일)
     out: dict[tuple[int, str], dict[str, Any]] = {}
+    # FY 누적 entry (350-380일) — Q4 채우기 위해
+    fy_cumulative: dict[int, dict[str, Any]] = {}
+
     for e in entries:
         s, en = e.get("start"), e.get("end")
         if not s or not en:
             continue
         fy = e.get("fy")
         fp = e.get("fp")
-        if fy is None or fp not in ("Q1", "Q2", "Q3", "Q4", "FY"):
+        if fy is None:
             continue
         if fy < since_year:
             continue
@@ -195,21 +205,72 @@ def extract_quarterly_pnl(
             days = days_between(s, en)
         except ValueError:
             continue
-        # 분기 데이터만 (80-100일)
-        if not (80 <= days <= 100):
-            continue
-        key = (int(fy), str(fp))
-        existing = out.get(key)
-        if existing:
-            # 우선순위 비교
-            existing_pri = (
-                form_priority(existing.get("form")),
-                existing.get("filed", ""),
-            )
-            new_pri = (form_priority(e.get("form")), e.get("filed", ""))
-            if new_pri <= existing_pri:
+
+        # 분기 entry (80-100일)
+        if 80 <= days <= 100:
+            if fp not in ("Q1", "Q2", "Q3", "Q4", "FY"):
                 continue
-        out[key] = e
+            key = (int(fy), str(fp))
+            existing = out.get(key)
+            if existing:
+                existing_pri = (
+                    form_priority(existing.get("form")),
+                    existing.get("filed", ""),
+                )
+                new_pri = (
+                    form_priority(e.get("form")),
+                    e.get("filed", ""),
+                )
+                if new_pri <= existing_pri:
+                    continue
+            out[key] = e
+            continue
+
+        # FY 연간 누적 entry (350-380일)
+        if 350 <= days <= 380 and fp == "FY":
+            existing = fy_cumulative.get(int(fy))
+            if existing:
+                existing_pri = (
+                    form_priority(existing.get("form")),
+                    existing.get("filed", ""),
+                )
+                new_pri = (
+                    form_priority(e.get("form")),
+                    e.get("filed", ""),
+                )
+                if new_pri <= existing_pri:
+                    continue
+            fy_cumulative[int(fy)] = e
+
+    # Q4 합성: FY - (Q1 + Q2 + Q3)
+    for fy_year, fy_entry in fy_cumulative.items():
+        q4_key = (fy_year, "Q4")
+        if q4_key in out:
+            continue  # 이미 Q4 분기 entry 존재
+        q1 = out.get((fy_year, "Q1"))
+        q2 = out.get((fy_year, "Q2"))
+        q3 = out.get((fy_year, "Q3"))
+        if not (q1 and q2 and q3):
+            continue
+        try:
+            fy_val = float(fy_entry["val"])
+            sum_q123 = (
+                float(q1["val"]) + float(q2["val"]) + float(q3["val"])
+            )
+        except (KeyError, ValueError, TypeError):
+            continue
+        q4_val = fy_val - sum_q123
+        # 합성 entry 만들기 — start는 Q3 end 다음, end는 FY end
+        out[q4_key] = {
+            "val": q4_val,
+            "start": q3["end"],
+            "end": fy_entry["end"],
+            "fy": fy_year,
+            "fp": "Q4",
+            "form": "10-K (computed Q4)",
+            "filed": fy_entry.get("filed", ""),
+        }
+
     return out
 
 

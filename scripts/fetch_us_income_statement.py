@@ -189,6 +189,15 @@ DA_TAGS = [
     "Depreciation",
 ]
 
+# 평균값 항목 — Q4 합성 시 누적 차감(FY - Q1 - Q2 - Q3) 적용 금지.
+# 가중평균 주식수는 분기별 ~동일한 평균값이라 차감하면 음수가 나옴.
+# (예: Apple FY2024 BasicSharesOutstanding ≈ 15.4B → 누적차감 시 -30.9B)
+# Q4는 FY 값을 근사로 사용 (분기 간 변동 작음 → 1% 이내 오차).
+AVERAGE_VALUE_ACCOUNTS = {
+    "BasicSharesOutstanding",
+    "DilutedSharesOutstanding",
+}
+
 
 # ── HTTP / 추출 유틸 ───────────────────────────────────────────────────────
 def fetch_companyfacts(cik: str) -> dict[str, Any] | None:
@@ -298,22 +307,51 @@ def extract_period_entries(
 
 
 def fp_synthesize_q4(
-    extracted: dict[tuple[int, str], dict[str, Any]]
+    extracted: dict[tuple[int, str], dict[str, Any]],
+    is_average: bool = False,
 ) -> dict[tuple[int, str], dict[str, Any]]:
     """
-    Q4 단독이 SEC에 없는 케이스 → FY - (Q1+Q2+Q3) 합성.
-    (이미 us_financials_quarterly에서 같은 패턴 사용 중)
+    Q4 단독이 SEC에 없는 케이스 → 합성.
+
+    is_average=False (default): 누적 항목 (revenue/income/expenses 등).
+      Q4 = FY - (Q1 + Q2 + Q3)
+
+    is_average=True: 평균값 항목 (가중평균 주식수 등).
+      Q4 ≈ FY 값 그대로 (분기 간 변동 작아 1% 이내 오차).
+      누적차감하면 음수가 나옴 (예: Apple BasicShares -30.9B).
     """
     out = dict(extracted)
     fy_years = {fy for (fy, p) in extracted.keys() if p == "FY"}
     for fy in fy_years:
         if (fy, "Q4") in out:
             continue
+        fy_e = out.get((fy, "FY"))
+        if not fy_e:
+            continue
+
+        if is_average:
+            # 평균값 — FY 값을 Q4 근사로 사용
+            q3 = out.get((fy, "Q3"))
+            q3_end = q3.get("end") if q3 else None
+            try:
+                fy_val = float(fy_e["val"])
+            except (KeyError, ValueError, TypeError):
+                continue
+            out[(fy, "Q4")] = {
+                "val": fy_val,
+                "start": q3_end or fy_e.get("start"),
+                "end": fy_e["end"],
+                "fy": fy,
+                "fp": "Q4",
+                "form": "10-K (FY-approx)",
+            }
+            continue
+
+        # 누적 항목 — Q1+Q2+Q3 모두 필요
         q1 = out.get((fy, "Q1"))
         q2 = out.get((fy, "Q2"))
         q3 = out.get((fy, "Q3"))
-        fy_e = out.get((fy, "FY"))
-        if not (q1 and q2 and q3 and fy_e):
+        if not (q1 and q2 and q3):
             continue
         try:
             q4_val = (
@@ -352,9 +390,10 @@ def process_company(
             continue  # computed 항목은 별도
         info = first_present_tag(facts, tags)
         per = extract_period_entries(info, since_year)
-        direct_extracted[account_name] = fp_synthesize_q4(per)
+        is_avg = account_name in AVERAGE_VALUE_ACCOUNTS
+        direct_extracted[account_name] = fp_synthesize_q4(per, is_average=is_avg)
 
-    # 추가 helper 태그 (computed용)
+    # 추가 helper 태그 (computed용) — D&A는 누적 항목
     da_info = first_present_tag(facts, DA_TAGS)
     da_extracted = fp_synthesize_q4(extract_period_entries(da_info, since_year))
 

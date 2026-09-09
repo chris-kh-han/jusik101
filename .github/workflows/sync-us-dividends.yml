@@ -1,9 +1,9 @@
 name: Sync US Dividends (Weekly)
 
-# 매주 월요일 05:00 UTC (한국 14:00) — sync-us-financials 30분 후
+# 매주 금요일 05:00 UTC (한국 14:00) — D1 일일 쓰기 한도 분산
 on:
   schedule:
-    - cron: '0 5 * * 1'
+    - cron: '0 5 * * 5'
   workflow_dispatch:
     inputs:
       years:

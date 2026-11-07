@@ -1,11 +1,11 @@
 name: Sync Dividends (Weekly)
 
-# 매주 월요일 04:00 UTC (한국시간 13:00) — sync-companies 1시간 후
+# 매주 수요일 04:00 UTC (한국시간 13:00) — D1 일일 쓰기 한도 분산
 # DART /document.xml 파싱으로 정확한 배당락일/지급일/주당배당금 수집
 # workflow_dispatch로 수동 실행 가능 (TOP_N, YEARS 파라미터 조정 가능)
 on:
   schedule:
-    - cron: '0 4 * * 1'
+    - cron: '0 4 * * 3'
   workflow_dispatch:
     inputs:
       top_n:

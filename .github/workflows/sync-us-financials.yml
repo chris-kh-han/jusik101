@@ -1,10 +1,10 @@
 name: Sync US Financials (Weekly)
 
-# 매주 월요일 04:30 UTC (한국 13:30) — sync-us-companies 1시간 후
+# 매주 목요일 04:30 UTC (한국 13:30) — D1 일일 쓰기 한도 분산
 # workflow_dispatch로 수동 실행 가능 (LIMIT으로 디버깅용 N개만 처리)
 on:
   schedule:
-    - cron: '30 4 * * 1'
+    - cron: '30 4 * * 4'
   workflow_dispatch:
     inputs:
       years:
